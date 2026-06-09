@@ -52,7 +52,9 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => env('AUTH_ACCESS_TOKEN_EXPIRY_DAYS') !== null
+        ? (int) env('AUTH_ACCESS_TOKEN_EXPIRY_DAYS') * 24 * 60
+        : null,
 
     /*
     |--------------------------------------------------------------------------
