@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('clients', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('company_id', 36);
+            $table->foreignUuid('company_id');
             $table->string('name');
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
@@ -25,7 +25,6 @@ return new class extends Migration
             $table->string('event_label')->nullable();
             $table->boolean('is_vip')->default(false);
             $table->boolean('is_active')->default(true);
-            $table->foreign('company_id')->references('id')->on('companies');
             $table->index('company_id');
             $table->softDeletes();
             $table->timestamps();
