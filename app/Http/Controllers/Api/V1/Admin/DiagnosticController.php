@@ -41,9 +41,10 @@ final class DiagnosticController extends ApiController
             ->paginate(min((int) $request->integer('per_page', 25), 100));
 
         return $this->success([
-            'items' => collect($bundles->items())
-                ->map(fn (DiagnosticBundle $b): array => $this->bundleRow($b))
-                ->all(),
+            'items' => array_map(
+                fn (DiagnosticBundle $bundle): array => $this->bundleRow($bundle),
+                $bundles->items()
+            ),
             'meta' => [
                 'total' => $bundles->total(),
                 'page' => $bundles->currentPage(),
@@ -169,7 +170,7 @@ final class DiagnosticController extends ApiController
     {
         $commands = DiagnosticCommand::query()
             ->withCount('acks')
-            ->with(['acks' => fn ($q) => $q->with('user:id,name,email')->latest()->limit(20)])
+            ->with('acks.user:id,name,email')
             ->when(
                 $request->filled('company_id'),
                 fn ($q) => $q->where('company_id', $request->string('company_id')->value())
@@ -178,20 +179,10 @@ final class DiagnosticController extends ApiController
             ->paginate(min((int) $request->integer('per_page', 25), 100));
 
         return $this->success([
-            'items' => collect($commands->items())->map(fn (DiagnosticCommand $c): array => [
-                'id' => $c->id,
-                'action' => $c->action,
-                'file_name' => $c->file_name,
-                'company_id' => $c->company_id,
-                'created_at' => $c->created_at?->toIso8601String(),
-                'acks_count' => $c->acks_count ?? 0,
-                'acks' => $c->acks->map(fn ($ack): array => [
-                    'user' => $ack->user?->email,
-                    'status' => $ack->status,
-                    'message' => $ack->message,
-                    'executed_at' => $ack->executed_at?->toIso8601String(),
-                ])->all(),
-            ])->all(),
+            'items' => array_map(
+                fn (DiagnosticCommand $command): array => $this->commandRow($command),
+                $commands->items()
+            ),
             'meta' => [
                 'total' => $commands->total(),
                 'page' => $commands->currentPage(),
@@ -224,6 +215,32 @@ final class DiagnosticController extends ApiController
         return $this->success(message: 'Ordre annulé.');
     }
 
+    /** @return array<string, mixed> */
+    private function commandRow(DiagnosticCommand $command): array
+    {
+        $acks = [];
+
+        // Les vingt derniers suffisent à voir qui a appliqué l'ordre.
+        foreach ($command->acks->sortByDesc('executed_at')->take(20) as $ack) {
+            $acks[] = [
+                'user' => $ack->user?->email,
+                'status' => $ack->status,
+                'message' => $ack->message,
+                'executed_at' => $ack->executed_at?->toIso8601String(),
+            ];
+        }
+
+        return [
+            'id' => $command->id,
+            'action' => $command->action,
+            'file_name' => $command->file_name,
+            'company_id' => $command->company_id,
+            'created_at' => $command->created_at?->toIso8601String(),
+            'acks_count' => $command->acks_count ?? 0,
+            'acks' => $acks,
+        ];
+    }
+
     private function isReadable(string $name, int $size): bool
     {
         $extension = mb_strtolower(pathinfo($name, PATHINFO_EXTENSION));
@@ -242,9 +259,9 @@ final class DiagnosticController extends ApiController
             'file_size' => $bundle->file_size,
             'file_size_human' => $bundle->file_size_human,
             'sent_at' => $bundle->sent_at?->toIso8601String(),
-            'user' => $bundle->relationLoaded('user') && $bundle->user
-                ? ['id' => $bundle->user->id, 'name' => $bundle->user->name, 'email' => $bundle->user->email]
-                : null,
+            'user' => $bundle->user === null
+                ? null
+                : ['id' => $bundle->user->id, 'name' => $bundle->user->name, 'email' => $bundle->user->email],
         ];
     }
 }

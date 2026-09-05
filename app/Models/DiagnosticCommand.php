@@ -15,6 +15,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * l'exécute une fois et l'acquitte : c'est l'acquittement, et non l'ordre, qui
  * porte l'état « appliqué ».
  */
+/**
+ * @property int $id
+ * @property string $action
+ * @property string|null $file_name
+ * @property string|null $company_id
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, DiagnosticCommandAck> $acks
+ * @property-read int|null $acks_count
+ */
 final class DiagnosticCommand extends Model
 {
     /** Crée un nouveau fichier de log portant le nom demandé. */

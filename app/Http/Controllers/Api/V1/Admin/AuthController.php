@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -125,7 +126,7 @@ final class AuthController extends ApiController
 
         if (! $verified && $request->recovery_code !== null) {
             $remaining = $this->twoFactor->consumeRecoveryCode(
-                $user->two_factor_recovery_codes ?? [],
+                array_values($user->two_factor_recovery_codes ?? []),
                 $request->recovery_code
             );
 
@@ -167,7 +168,7 @@ final class AuthController extends ApiController
         $user = $request->user();
 
         if ($user instanceof User) {
-            $user->currentAccessToken()?->delete();
+            $user->currentAccessToken()->delete();
         }
 
         return $this->success(message: 'Déconnecté.');
@@ -182,7 +183,7 @@ final class AuthController extends ApiController
             return $this->unauthorized();
         }
 
-        $currentId = $user->currentAccessToken()?->getKey();
+        $currentId = $user->currentAccessToken()->getKey();
 
         return $this->success(
             $user->tokens()
@@ -235,7 +236,7 @@ final class AuthController extends ApiController
     /** @return array<string, mixed> */
     private function tokenPayload(User $user): array
     {
-        $expiresAt = Carbon::now()->addHours((int) config('tokens.admin_expiry_hours', 12));
+        $expiresAt = Carbon::now()->addHours(Config::integer('tokens.admin_expiry_hours', 12));
 
         return [
             'two_factor_required' => false,

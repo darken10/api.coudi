@@ -22,9 +22,9 @@ final class CreateSuperAdmin extends Command
 
     public function handle(): int
     {
-        $name = $this->option('name') ?? $this->ask('Nom');
-        $email = mb_strtolower((string) ($this->option('email') ?? $this->ask('E-mail')));
-        $password = $this->option('password') ?? $this->secret('Mot de passe');
+        $name = $this->text('name', fn (): mixed => $this->ask('Nom'));
+        $email = mb_strtolower($this->text('email', fn (): mixed => $this->ask('E-mail')));
+        $password = $this->text('password', fn (): mixed => $this->secret('Mot de passe'));
 
         $validator = Validator::make(
             ['name' => $name, 'email' => $email, 'password' => $password],
@@ -69,5 +69,19 @@ final class CreateSuperAdmin extends Command
         $this->line('Activez le double facteur dès la première connexion.');
 
         return self::SUCCESS;
+    }
+
+    /** Lit une option, ou la demande — en garantissant une chaîne. */
+    private function text(string $option, callable $prompt): string
+    {
+        $value = $this->option($option);
+
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        $answer = $prompt();
+
+        return is_string($answer) ? $answer : '';
     }
 }

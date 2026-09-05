@@ -37,7 +37,10 @@ final class CompanyController extends ApiController
             ->paginate(min((int) $request->integer('per_page', 25), 100));
 
         return $this->success([
-            'items' => collect($companies->items())->map(fn (Company $c): array => $this->row($c))->all(),
+            'items' => array_map(
+                fn (Company $company): array => $this->row($company),
+                $companies->items()
+            ),
             'meta' => [
                 'total' => $companies->total(),
                 'page' => $companies->currentPage(),
@@ -57,8 +60,9 @@ final class CompanyController extends ApiController
     public function update(UpdateCompanyRequest $request, Company $company): JsonResponse
     {
         $company->update($request->validated());
+        $company->refresh()->loadCount('clients')->load('diagnosticSetting');
 
-        return $this->success($this->row($company->fresh()), 'Atelier mis à jour.');
+        return $this->success($this->row($company), 'Atelier mis à jour.');
     }
 
     /** Réglages de journalisation propres à cet atelier. */

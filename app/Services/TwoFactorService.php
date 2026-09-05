@@ -9,6 +9,7 @@ use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -26,7 +27,7 @@ final readonly class TwoFactorService
     public function provisioningUri(User $user, string $secret): string
     {
         return $this->google2fa->getQRCodeUrl(
-            (string) config('app.name'),
+            Config::string('app.name'),
             $user->email,
             $secret
         );
@@ -51,29 +52,33 @@ final readonly class TwoFactorService
      */
     public function verify(string $secret, string $code): bool
     {
-        return $this->google2fa->verifyKey($secret, $code, 1);
+        // verifyKey rend l'horodatage du créneau validé, ou false.
+        return $this->google2fa->verifyKey($secret, $code, 1) !== false;
     }
 
     /** @return list<string> */
     public function generateRecoveryCodes(int $count = 8): array
     {
-        return collect(range(1, $count))
-            ->map(fn (): string => Str::lower(Str::random(5).'-'.Str::random(5)))
-            ->values()
-            ->all();
+        $codes = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $codes[] = Str::lower(Str::random(5).'-'.Str::random(5));
+        }
+
+        return $codes;
     }
 
     /**
      * Consomme un code de secours s'il correspond.
      *
      * @param  list<string>  $codes
-     * @return list<string>|null  la liste amputée du code utilisé, ou null si aucun ne correspond
+     * @return list<string>|null la liste amputée du code utilisé, ou null si aucun ne correspond
      */
     public function consumeRecoveryCode(array $codes, string $candidate): ?array
     {
         $remaining = array_values(array_filter(
             $codes,
-            fn (string $code): bool => ! hash_equals($code, Str::lower(trim($candidate)))
+            fn (string $code): bool => ! hash_equals($code, Str::lower(mb_trim($candidate)))
         ));
 
         return count($remaining) === count($codes) ? null : $remaining;

@@ -26,12 +26,6 @@ final class LoginAudit extends Model
 
     protected $fillable = ['user_id', 'email', 'status', 'ip', 'user_agent'];
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
-    }
-
     public static function record(Request $request, string $email, string $status, ?int $userId = null): void
     {
         self::query()->create([
@@ -39,7 +33,13 @@ final class LoginAudit extends Model
             'email' => $email,
             'status' => $status,
             'ip' => $request->ip(),
-            'user_agent' => substr((string) $request->userAgent(), 0, 255),
+            'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
         ]);
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 }

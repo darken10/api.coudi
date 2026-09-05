@@ -8,6 +8,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Trace de l'exécution d'un ordre par un appareil donné. */
+/**
+ * @property int $command_id
+ * @property string $status
+ * @property string|null $message
+ * @property \Illuminate\Support\Carbon|null $executed_at
+ * @property-read User|null $user
+ */
 final class DiagnosticCommandAck extends Model
 {
     public const STATUS_DONE = 'done';

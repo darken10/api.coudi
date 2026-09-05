@@ -49,7 +49,7 @@ final class TwoFactorController extends ApiController
             'secret' => $secret,
             'otpauth_uri' => $uri,
             'qr_svg' => $this->twoFactor->qrCodeSvg($uri),
-        ], "Scannez le QR code, puis saisissez le code affiché pour confirmer.");
+        ], 'Scannez le QR code, puis saisissez le code affiché pour confirmer.');
     }
 
     /** Valide un premier code et rend les codes de secours. */
