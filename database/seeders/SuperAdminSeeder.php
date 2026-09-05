@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Hash;
  */
 final class SuperAdminSeeder extends Seeder
 {
-    public const EMAIL = 'admin@coudi.app';
+    public const EMAIL = 'admin@coudi.com';
 
     public const PASSWORD = 'password';
 
