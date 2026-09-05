@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\Company;
+use App\Models\DiagnosticSetting;
 use App\Models\LoginAudit;
 use App\Models\User;
 use App\Services\TwoFactorService;
@@ -207,5 +208,36 @@ describe('Admin guard', function (): void {
             ->deleteJson("/api/v1/admin/companies/{$company->id}/diagnostic-settings")
             ->assertOk()
             ->assertJsonPath('data.log_level', 'info');
+    });
+
+    it('flags a workshop left on verbose logging', function (): void {
+        $company = Company::factory()->create(['name' => 'Atelier Nafissa']);
+        DiagnosticSetting::create([
+            'company_id' => $company->id,
+            'log_rotation' => 'daily',
+            'log_retention' => 3,
+            'log_level' => 'debug',
+            'log_api_calls' => true,
+            'log_api_bodies' => true,
+        ]);
+
+        $this->actingAs(superAdmin(), 'sanctum')
+            ->getJson('/api/v1/admin/overview')
+            ->assertOk()
+            ->assertJsonPath('data.companies.total', 1)
+            ->assertJsonPath('data.companies.overridden', 1)
+            ->assertJsonPath('data.attention.verbose_logging.0.company_name', 'Atelier Nafissa')
+            ->assertJsonPath('data.attention.verbose_logging.0.log_level', 'debug');
+    });
+
+    it('leaves the attention list empty when nothing needs action', function (): void {
+        Company::factory()->create();
+
+        $this->actingAs(superAdmin(), 'sanctum')
+            ->getJson('/api/v1/admin/overview')
+            ->assertOk()
+            ->assertJsonPath('data.attention.verbose_logging', [])
+            ->assertJsonPath('data.attention.failed_acks', [])
+            ->assertJsonPath('data.attention.failed_logins_24h', 0);
     });
 });
