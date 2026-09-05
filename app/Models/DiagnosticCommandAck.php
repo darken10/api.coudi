@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $status
  * @property string|null $message
  * @property \Illuminate\Support\Carbon|null $executed_at
+ * @property-read DiagnosticCommand|null $command
  * @property-read User|null $user
  */
 final class DiagnosticCommandAck extends Model

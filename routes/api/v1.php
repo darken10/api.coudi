@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\V1\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Api\V1\Admin\DiagnosticController as AdminDiagnosticController;
+use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\TwoFactorController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DiagnosticController;
@@ -72,6 +73,7 @@ Route::prefix('admin')->group(function (): void {
     });
 
     Route::middleware(['auth:sanctum', 'super_admin', 'throttle:authenticated'])->group(function (): void {
+        Route::get('overview', OverviewController::class)->name('api.v1.admin.overview');
         Route::get('me', [AdminAuthController::class, 'me'])->name('api.v1.admin.me');
         Route::post('logout', [AdminAuthController::class, 'logout'])->name('api.v1.admin.logout');
         Route::get('sessions', [AdminAuthController::class, 'sessions'])->name('api.v1.admin.sessions');

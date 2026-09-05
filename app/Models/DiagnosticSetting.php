@@ -13,6 +13,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Une ligne dont `company_id` est NULL fait office de défaut global : elle est
  * servie tant qu'aucune ligne propre à l'entreprise n'existe.
  */
+/**
+ * @property string|null $company_id
+ * @property string $log_rotation
+ * @property int $log_retention
+ * @property string $log_level
+ * @property bool $log_api_calls
+ * @property bool $log_api_bodies
+ * @property-read Company|null $company
+ */
 final class DiagnosticSetting extends Model
 {
     public const ROTATION_DAILY = 'daily';
