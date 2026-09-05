@@ -31,6 +31,9 @@ final class UpdateDiagnosticSettingsRequest extends FormRequest
             'company_id' => ['nullable', 'uuid', 'exists:companies,id'],
             'log_rotation' => ['required', 'string', Rule::in(DiagnosticSetting::ROTATIONS)],
             'log_retention' => ['required', 'integer', 'min:1', 'max:60'],
+            'log_level' => ['required', 'string', Rule::in(DiagnosticSetting::LEVELS)],
+            'log_api_calls' => ['required', 'boolean'],
+            'log_api_bodies' => ['required', 'boolean'],
         ];
     }
 
@@ -41,6 +44,7 @@ final class UpdateDiagnosticSettingsRequest extends FormRequest
             'log_rotation.in' => 'La rotation doit valoir daily, weekly ou monthly.',
             'log_retention.min' => 'Il faut conserver au moins une période de logs.',
             'log_retention.max' => 'La rétention ne peut pas dépasser 60 périodes.',
+            'log_level.in' => 'Le niveau doit valoir debug, info, warn, error ou silent.',
         ];
     }
 }

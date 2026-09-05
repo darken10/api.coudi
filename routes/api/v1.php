@@ -40,6 +40,8 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
         Route::post('bundle', [DiagnosticController::class, 'storeBundle'])->name('api.v1.diagnostics.bundle');
         Route::get('settings', [DiagnosticController::class, 'showSettings'])->name('api.v1.diagnostics.settings.show');
         Route::put('settings', [DiagnosticController::class, 'updateSettings'])->name('api.v1.diagnostics.settings.update');
+        Route::post('commands', [DiagnosticController::class, 'storeCommand'])->name('api.v1.diagnostics.commands.store');
+        Route::post('commands/{command}/ack', [DiagnosticController::class, 'ackCommand'])->name('api.v1.diagnostics.commands.ack');
     });
 });
 

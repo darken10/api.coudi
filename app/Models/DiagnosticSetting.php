@@ -32,10 +32,22 @@ final class DiagnosticSetting extends Model
 
     public const DEFAULT_RETENTION = 6;
 
+    /** Niveaux acceptés, du plus bavard au plus silencieux. */
+    public const LEVELS = ['debug', 'info', 'warn', 'error', 'silent'];
+
+    public const DEFAULT_LEVEL = 'info';
+
+    public const DEFAULT_LOG_API_CALLS = true;
+
+    public const DEFAULT_LOG_API_BODIES = false;
+
     protected $fillable = [
         'company_id',
         'log_rotation',
         'log_retention',
+        'log_level',
+        'log_api_calls',
+        'log_api_bodies',
     ];
 
     /**
@@ -53,6 +65,9 @@ final class DiagnosticSetting extends Model
             ?? new self([
                 'log_rotation' => self::DEFAULT_ROTATION,
                 'log_retention' => self::DEFAULT_RETENTION,
+                'log_level' => self::DEFAULT_LEVEL,
+                'log_api_calls' => self::DEFAULT_LOG_API_CALLS,
+                'log_api_bodies' => self::DEFAULT_LOG_API_BODIES,
             ]);
     }
 
@@ -67,6 +82,8 @@ final class DiagnosticSetting extends Model
     {
         return [
             'log_retention' => 'integer',
+            'log_api_calls' => 'boolean',
+            'log_api_bodies' => 'boolean',
         ];
     }
 }
