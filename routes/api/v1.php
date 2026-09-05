@@ -38,6 +38,8 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
     // Diagnostics (throttle : 5 envois/min — bundle ZIP pouvant être volumineux)
     Route::prefix('diagnostics')->middleware('throttle:5,1')->group(function (): void {
         Route::post('bundle', [DiagnosticController::class, 'storeBundle'])->name('api.v1.diagnostics.bundle');
+        Route::get('settings', [DiagnosticController::class, 'showSettings'])->name('api.v1.diagnostics.settings.show');
+        Route::put('settings', [DiagnosticController::class, 'updateSettings'])->name('api.v1.diagnostics.settings.update');
     });
 });
 
@@ -48,5 +50,3 @@ Route::middleware('throttle:6,1')->group(function (): void {
     Route::post('reset-password', [AuthController::class, 'resetPassword'])
         ->name('password.reset');
 });
-
-
