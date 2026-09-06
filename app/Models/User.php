@@ -9,6 +9,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -62,6 +63,43 @@ final class User extends Authenticatable implements MustVerifyEmail
     public function hasTwoFactorEnabled(): bool
     {
         return $this->two_factor_secret !== null && $this->two_factor_confirmed_at !== null;
+    }
+
+    /**
+     * Ateliers auxquels ce compte a accès.
+     *
+     * Un patron gère plusieurs ateliers ; un atelier est partagé entre le
+     * patron et ses tailleurs. Le rôle vit sur le pivot, pas sur le compte :
+     * on peut être propriétaire ici et simple tailleur ailleurs.
+     *
+     * @return BelongsToMany<Company, $this>
+     */
+    public function companies(): BelongsToMany
+    {
+        return $this->belongsToMany(Company::class, 'company_user')
+            ->withPivot(['role', 'joined_at'])
+            ->withTimestamps();
+    }
+
+    /** @return HasMany<Device, $this> */
+    public function devices(): HasMany
+    {
+        return $this->hasMany(Device::class);
+    }
+
+    /** Rôle tenu dans un atelier, ou `null` si le compte n'y a pas accès. */
+    public function roleIn(Company|string $company): ?string
+    {
+        $companyId = $company instanceof Company ? $company->getKey() : $company;
+
+        $membership = $this->companies()->find($companyId);
+
+        return $membership?->getAttribute('pivot')?->role;
+    }
+
+    public function canWriteIn(Company|string $company): bool
+    {
+        return in_array($this->roleIn($company), Company::WRITE_ROLES, true);
     }
 
     /** @return HasMany<LoginAudit, $this> */

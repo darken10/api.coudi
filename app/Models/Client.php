@@ -1,17 +1,27 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use App\Models\Concerns\BelongsToCompany;
+use App\Models\Concerns\Syncable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Client extends Model
+/**
+ * Client de l'atelier.
+ */
+final class Client extends Model
 {
     /** @use HasFactory<\Database\Factories\ClientFactory> */
-    use HasFactory, SoftDeletes, HasUuids;
+    use BelongsToCompany;
 
+    use HasFactory;
+    use Syncable;
+
+    /** @var list<string> */
     protected $fillable = [
         'company_id',
         'name',
@@ -27,16 +37,26 @@ class Client extends Model
         'is_active',
     ];
 
-    protected $casts = [
-        'is_vip' => 'boolean',
-        'is_active' => 'boolean',
-        'birth_date' => 'date',
-        'event_date' => 'date',
-    ];
-
-    public function company()
+    /** @return HasMany<Order, $this> */
+    public function orders(): HasMany
     {
-        return $this->belongsTo(Company::class);
+        return $this->hasMany(Order::class);
     }
 
+    /** @return HasMany<ClientMeasurement, $this> */
+    public function measurements(): HasMany
+    {
+        return $this->hasMany(ClientMeasurement::class);
+    }
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return [
+            'is_vip' => 'boolean',
+            'is_active' => 'boolean',
+            'birth_date' => 'date',
+            'event_date' => 'date',
+        ];
+    }
 }
