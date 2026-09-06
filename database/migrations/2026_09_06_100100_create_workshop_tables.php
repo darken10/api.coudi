@@ -35,7 +35,8 @@ return new class extends Migration
             $table->decimal('salary', 12, 2)->nullable();
             $table->string('status', 20)->default('active');
             $table->date('hired_at')->nullable();
-            $table->string('payment_type', 20)->default('monthly'); // monthly | piece
+            // monthly | weekly | daily | per_piece — jeu de valeurs du mobile.
+            $table->string('payment_type', 20)->default('monthly');
             $table->decimal('rate_amount', 12, 2)->nullable();
             $this->syncColumns($table);
         });

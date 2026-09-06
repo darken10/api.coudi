@@ -194,7 +194,22 @@ final class SyncPusher
 
         $model->markDeleted($device->deviceId(), $revision);
 
-        return ['status' => PushOutcome::Applied->value, 'id' => $id, 'revision' => $revision];
+        /*
+         * Le serveur pose des pierres tombales, il ne cascade pas comme SQLite :
+         * sans propagation explicite, effacer un employé laisserait ses tarifs à
+         * la pièce vivants côté serveur. Le mobile ne verrait rien — sa propre
+         * cascade a déjà nettoyé — jusqu'au jour où une réinstallation
+         * retélécharge des lignes orphelines et bute sur leurs clés étrangères.
+         */
+        $cascaded = $this->cascade($company, $entity, $id, $device->deviceId());
+
+        $result = ['status' => PushOutcome::Applied->value, 'id' => $id, 'revision' => $revision];
+
+        if ($cascaded > 0) {
+            $result['cascaded'] = $cascaded;
+        }
+
+        return $result;
     }
 
     /**
@@ -380,6 +395,58 @@ final class SyncPusher
         }
 
         return null;
+    }
+
+    /**
+     * Propage l'effacement aux lignes qui dépendent de celle-ci.
+     *
+     * Effacer un atelier efface tout ce qu'il contient ; effacer une autre
+     * entité n'atteint que ce qui la désigne comme parent.
+     *
+     * @return int Nombre de lignes marquées.
+     */
+    private function cascade(Company $company, SyncEntity $entity, string $id, string $deviceId): int
+    {
+        $marked = 0;
+
+        foreach (SyncRegistry::all() as $child) {
+            if ($child->key === $entity->key) {
+                continue;
+            }
+
+            $columns = $entity->key === 'companies'
+                ? ['company_id']
+                : array_keys(array_filter(
+                    $child->parents,
+                    static fn (string $parent): bool => $parent === $entity->key,
+                ));
+
+            foreach ($columns as $column) {
+                $rows = $child->query()
+                    ->where($child->companyColumn(), $company->syncCompanyId())
+                    ->where($column, $id)
+                    ->whereNull('deleted_at')
+                    ->get();
+
+                foreach ($rows as $row) {
+                    /** @var string $childId */
+                    $childId = $row->getKey();
+
+                    // Chaque pierre tombale prélève sa propre révision : les
+                    // appareils doivent pouvoir les rattraper une par une.
+                    $row->markDeleted($deviceId);
+                    $marked++;
+
+                    // Un atelier atteint déjà toutes ses tables : redescendre
+                    // par les parents ferait repasser sur les mêmes lignes.
+                    if ($entity->key !== 'companies') {
+                        $marked += $this->cascade($company, $child, $childId, $deviceId);
+                    }
+                }
+            }
+        }
+
+        return $marked;
     }
 
     /** @return (Model&Replicable)|null */

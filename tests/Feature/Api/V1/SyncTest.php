@@ -464,3 +464,46 @@ describe('Statut', function (): void {
             ->and($response->json('data.can_write'))->toBeTrue();
     });
 });
+
+describe('Cascade des effacements', function (): void {
+    it('efface aussi ce qui dépendait de la ligne supprimée', function (): void {
+        [, $company, $device] = workshop();
+
+        $employee = App\Models\Employee::query()->create([
+            'company_id' => $company->getKey(),
+            'name' => 'Ibrahim',
+        ]);
+        $type = GarmentType::query()->create(['company_id' => $company->getKey(), 'name' => 'Boubou']);
+        $rate = App\Models\EmployeePieceRate::query()->create([
+            'company_id' => $company->getKey(),
+            'employee_id' => $employee->getKey(),
+            'garment_type_id' => $type->getKey(),
+            'rate' => 2500,
+        ]);
+
+        $response = $this->postJson('/api/v1/sync/push', [
+            'ops' => [op('employees', [], 'delete', $employee->getKey())],
+        ], syncHeaders($company, $device))->assertOk();
+
+        expect($response->json('data.results.0.cascaded'))->toBe(1);
+
+        // Sans cette pierre tombale, une réinstallation retéléchargerait un
+        // tarif rattaché à un employé qui n'existe plus.
+        expect($rate->fresh()->deleted_at)->not->toBeNull()
+            ->and($type->fresh()->deleted_at)->toBeNull();
+    });
+
+    it("efface tout l'atelier quand l'atelier lui-même est supprimé", function (): void {
+        [, $company, $device] = workshop();
+
+        $client = Client::query()->create(['company_id' => $company->getKey(), 'name' => 'Awa']);
+        $type = GarmentType::query()->create(['company_id' => $company->getKey(), 'name' => 'Boubou']);
+
+        $this->postJson('/api/v1/sync/push', [
+            'ops' => [op('companies', [], 'delete', $company->getKey())],
+        ], syncHeaders($company, $device))->assertOk();
+
+        expect($client->fresh()->deleted_at)->not->toBeNull()
+            ->and($type->fresh()->deleted_at)->not->toBeNull();
+    });
+});

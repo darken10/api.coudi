@@ -30,7 +30,7 @@ final class EmployeeController extends TenantResourceController
             'salary' => ['nullable', 'numeric', 'min:0'],
             'status' => ['nullable', 'string', 'max:20'],
             'hired_at' => ['nullable', 'date'],
-            'payment_type' => ['nullable', 'in:monthly,piece'],
+            'payment_type' => ['nullable', 'in:monthly,weekly,daily,per_piece'],
             'rate_amount' => ['nullable', 'numeric', 'min:0'],
         ];
     }
