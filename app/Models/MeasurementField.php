@@ -6,12 +6,13 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
  * Mesure relevable (tour de poitrine, longueur manche…), propre à l'atelier.
  */
-final class MeasurementField extends Model
+final class MeasurementField extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

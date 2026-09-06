@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Client de l'atelier.
  */
-final class Client extends Model
+final class Client extends Model implements Replicable
 {
     /** @use HasFactory<\Database\Factories\ClientFactory> */
     use BelongsToCompany;

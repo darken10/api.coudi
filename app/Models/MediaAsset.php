@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Model;
  * `storage_path` et `checksum` ne sont renseignés qu'une fois le fichier
  * téléversé sur le canal dédié.
  */
-final class MediaAsset extends Model
+final class MediaAsset extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

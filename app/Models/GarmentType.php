@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Type de vêtement du catalogue : c'est lui qui porte les champs de
  * mesure à relever et le tarif de base.
  */
-final class GarmentType extends Model
+final class GarmentType extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

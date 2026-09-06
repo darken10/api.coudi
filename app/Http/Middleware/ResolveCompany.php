@@ -45,7 +45,7 @@ final class ResolveCompany
         // Même réponse pour « n'existe pas » et « pas le vôtre » : distinguer
         // les deux dirait à un curieux quels ateliers existent.
         if ($company === null) {
-            return $this->deny("Atelier inconnu ou hors de votre périmètre.", 403);
+            return $this->deny('Atelier inconnu ou hors de votre périmètre.', 403);
         }
 
         if ($company->status === Company::STATUS_SUSPENDED) {
@@ -53,7 +53,8 @@ final class ResolveCompany
         }
 
         $request->attributes->set(self::ATTRIBUTE, $company);
-        $request->attributes->set(self::ROLE_ATTRIBUTE, $company->getAttribute('pivot')?->role);
+        $role = $company->getAttribute('pivot')?->getAttribute('role');
+        $request->attributes->set(self::ROLE_ATTRIBUTE, is_string($role) ? $role : null);
 
         return $next($request);
     }

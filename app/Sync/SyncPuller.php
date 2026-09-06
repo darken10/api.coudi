@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Sync;
 
 use App\Models\Company;
+use App\Models\Contracts\Replicable;
+use DateTimeInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -32,6 +35,7 @@ final class SyncPuller
     public function pull(Company $company, int $since, array $entities = [], int $limit = self::DEFAULT_LIMIT): array
     {
         $limit = max(1, min($limit, self::MAX_LIMIT));
+        $companyId = $company->syncCompanyId();
 
         /*
          * Le plafond est lu AVANT les requêtes, et il est sûr parce que tout
@@ -40,19 +44,21 @@ final class SyncPuller
          * ligne déjà lisible. Sans cette règle, le curseur pourrait sauter
          * par-dessus une écriture encore en vol, définitivement perdue.
          */
-        $ceiling = RevisionSequence::current($company->getKey());
+        $ceiling = RevisionSequence::current($companyId);
 
         $keys = $entities === [] ? SyncRegistry::keys() : SyncRegistry::ordered($entities);
 
+        /** @var array<string, Collection<int, Model&Replicable>> $rows */
         $rows = [];
+
+        /** @var array<string, int> $truncatedAt */
         $truncatedAt = [];
 
         foreach ($keys as $key) {
             $entity = SyncRegistry::get($key);
 
-            $found = $entity->newModel()->newQuery()
-                ->withTrashed()
-                ->where($key === 'companies' ? 'id' : 'company_id', $company->getKey())
+            $found = $entity->query()
+                ->where($entity->companyColumn(), $companyId)
                 ->where('revision', '>', $since)
                 ->where('revision', '<=', $ceiling)
                 ->orderBy('revision')
@@ -61,7 +67,8 @@ final class SyncPuller
 
             if ($found->count() > $limit) {
                 $found = $found->take($limit);
-                $truncatedAt[$key] = (int) $found->last()->getAttribute('revision');
+                $last = $found->last();
+                $truncatedAt[$key] = $last === null ? $ceiling : $this->intOf($last, 'revision');
             }
 
             $rows[$key] = $found;
@@ -73,17 +80,22 @@ final class SyncPuller
          */
         $cursor = $truncatedAt === [] ? $ceiling : min($truncatedAt);
 
+        /** @var array<string, list<array<string, mixed>>> $changes */
         $changes = [];
+
+        /** @var array<string, int> $counts */
         $counts = [];
 
         foreach ($rows as $key => $collection) {
             $entity = SyncRegistry::get($key);
 
-            $kept = $collection
-                ->filter(fn (Model $m): bool => (int) $m->getAttribute('revision') <= $cursor)
-                ->map(fn (Model $m): array => $this->serialize($entity, $m))
-                ->values()
-                ->all();
+            $kept = [];
+
+            foreach ($collection as $model) {
+                if ($this->intOf($model, 'revision') <= $cursor) {
+                    $kept[] = $this->serialize($entity, $model);
+                }
+            }
 
             if ($kept !== []) {
                 $changes[$key] = $kept;
@@ -104,21 +116,22 @@ final class SyncPuller
      * Une ligne effacée ne transporte pas ses champs : seule compte
      * l'instruction d'effacement.
      *
+     * @param  Model&Replicable  $model
      * @return array<string, mixed>
      */
     private function serialize(SyncEntity $entity, Model $model): array
     {
-        $deleted = $model->getAttribute('deleted_at') !== null;
+        $deletedAt = $model->getAttribute('deleted_at');
 
         $row = [
             'id' => $model->getKey(),
-            'op' => $deleted ? 'delete' : 'upsert',
-            'revision' => (int) $model->getAttribute('revision'),
-            'updated_at' => $model->getAttribute('updated_at')?->toIso8601String(),
+            'op' => $deletedAt === null ? 'upsert' : 'delete',
+            'revision' => $this->intOf($model, 'revision'),
+            'updated_at' => $this->scalar($model->getAttribute('updated_at')),
         ];
 
-        if ($deleted) {
-            $row['deleted_at'] = $model->getAttribute('deleted_at')?->toIso8601String();
+        if ($deletedAt !== null) {
+            $row['deleted_at'] = $this->scalar($deletedAt);
 
             return $row;
         }
@@ -141,8 +154,15 @@ final class SyncPuller
     /** Les dates partent en ISO 8601 ; SQLite mobile ne lit pas les objets Carbon. */
     private function scalar(mixed $value): mixed
     {
-        return $value instanceof \DateTimeInterface
-            ? $value->format(\DateTimeInterface::ATOM)
+        return $value instanceof DateTimeInterface
+            ? $value->format(DateTimeInterface::ATOM)
             : $value;
+    }
+
+    private function intOf(Model $model, string $attribute): int
+    {
+        $value = $model->getAttribute($attribute);
+
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

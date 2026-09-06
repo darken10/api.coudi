@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Sync;
 
+use App\Models\Contracts\Replicable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 /**
  * Description d'une entité répliquée : ce qui voyage, d'où vient son atelier,
@@ -14,7 +17,7 @@ final readonly class SyncEntity
 {
     /**
      * @param  string  $key  Nom transporté dans le protocole (`clients`, `orders`…).
-     * @param  class-string<Model>  $model
+     * @param  class-string<Model&Replicable>  $model
      * @param  list<string>  $fields  Colonnes répliquées, hors socle de synchronisation.
      * @param  array<string, string>  $parents  Colonne de rattachement => entité parente.
      * @param  list<string>  $naturalKey  Uplet unique, pour `NaturalKeyUpsert`.
@@ -31,12 +34,29 @@ final readonly class SyncEntity
         public ?string $companyFrom = null,
     ) {}
 
+    /** @return Model&Replicable */
     public function newModel(): Model
     {
-        /** @var Model $model */
-        $model = new $this->model;
+        return new $this->model;
+    }
 
-        return $model;
+    /**
+     * Requête incluant les pierres tombales.
+     *
+     * La synchronisation lit toujours les lignes effacées : leur absence est
+     * précisément ce qu'un appareil hors ligne doit apprendre.
+     *
+     * @return Builder<Model&Replicable>
+     */
+    public function query(): Builder
+    {
+        return $this->newModel()->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+    }
+
+    /** Colonne portant l'atelier — `companies` se désigne par sa clé primaire. */
+    public function companyColumn(): string
+    {
+        return $this->key === 'companies' ? 'id' : 'company_id';
     }
 
     public function table(): string

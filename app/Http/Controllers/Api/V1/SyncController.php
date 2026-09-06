@@ -57,7 +57,7 @@ final class SyncController extends ApiController
 
         $state->save();
 
-        return $this->success($result + ['totals' => $this->totals($company->getKey())]);
+        return $this->success($result + ['totals' => $this->totals($company->syncCompanyId())]);
     }
 
     /**
@@ -99,7 +99,7 @@ final class SyncController extends ApiController
         return $this->success([
             'results' => $results,
             'summary' => $this->summarize($results),
-            'server_revision' => RevisionSequence::current($company->getKey()),
+            'server_revision' => RevisionSequence::current($company->syncCompanyId()),
         ]);
     }
 
@@ -112,14 +112,15 @@ final class SyncController extends ApiController
     {
         $company = $this->company($request);
         $state = $this->device($request)->syncStateFor($company);
+        $serverRevision = RevisionSequence::current($company->syncCompanyId());
 
         return $this->success([
-            'company_id' => $company->getKey(),
-            'server_revision' => RevisionSequence::current($company->getKey()),
+            'company_id' => $company->syncCompanyId(),
+            'server_revision' => $serverRevision,
             'device_revision' => $state->last_pulled_revision,
             'bootstrapped_at' => $state->bootstrapped_at?->toIso8601String(),
             'last_pushed_at' => $state->last_pushed_at?->toIso8601String(),
-            'behind' => max(0, RevisionSequence::current($company->getKey()) - $state->last_pulled_revision),
+            'behind' => max(0, $serverRevision - $state->last_pulled_revision),
             'entities' => SyncRegistry::keys(),
             'can_write' => $this->canWrite($request),
         ]);
@@ -136,7 +137,7 @@ final class SyncController extends ApiController
 
         foreach (SyncRegistry::all() as $key => $entity) {
             $totals[$key] = $entity->newModel()->newQuery()
-                ->where($key === 'companies' ? 'id' : 'company_id', $companyId)
+                ->where($entity->companyColumn(), $companyId)
                 ->count();
         }
 
@@ -152,9 +153,9 @@ final class SyncController extends ApiController
         $summary = array_fill_keys(array_column(PushOutcome::cases(), 'value'), 0);
 
         foreach ($results as $result) {
-            $status = (string) ($result['status'] ?? '');
+            $status = $result['status'] ?? null;
 
-            if (isset($summary[$status])) {
+            if (is_string($status) && isset($summary[$status])) {
                 $summary[$status]++;
             }
         }

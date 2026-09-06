@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Le triplet (client, type, champ) est unique : c'est cette clé naturelle —
  * et non l'UUID — qui sert de pivot au rapprochement lors d'un push.
  */
-final class ClientMeasurement extends Model
+final class ClientMeasurement extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Sync;
 
 use App\Models\Company;
+use App\Models\Contracts\Replicable;
 use App\Models\Device;
 use App\Models\Order;
 use App\Models\SyncOperation;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -43,7 +45,7 @@ final class SyncPusher
 
         return DB::transaction(function () use ($company, $device, $ops): array {
             $replays = SyncOperation::query()
-                ->where('device_id', $device->getKey())
+                ->where('device_id', $device->deviceId())
                 ->whereIn('operation_id', array_column($ops, 'op_id'))
                 ->get()
                 ->keyBy('operation_id');
@@ -51,16 +53,16 @@ final class SyncPusher
             // Sur-réserver est sans conséquence : un trou dans la suite des
             // révisions ne fait sauter aucune ligne, il fait juste avancer le
             // curseur un peu plus vite.
-            $revision = RevisionSequence::allocate($company->getKey(), max(1, count($ops)));
+            $revision = RevisionSequence::allocate($company->syncCompanyId(), max(1, count($ops)));
 
             $results = [];
 
             foreach ($ops as $op) {
-                $opId = (string) ($op['op_id'] ?? '');
+                $opId = self::stringOf($op, 'op_id');
 
                 if ($replays->has($opId)) {
                     $stored = $replays->get($opId);
-                    $results[] = ['op_id' => $opId, 'replayed' => true] + (array) $stored->result;
+                    $results[] = ['op_id' => $opId, 'replayed' => true] + (array) ($stored?->result ?? []);
 
                     continue;
                 }
@@ -103,8 +105,8 @@ final class SyncPusher
         );
 
         usort($indexed, static function (array $a, array $b) use ($rank): int {
-            $ra = $rank[$a['op']['entity'] ?? ''] ?? PHP_INT_MAX;
-            $rb = $rank[$b['op']['entity'] ?? ''] ?? PHP_INT_MAX;
+            $ra = $rank[self::entityOf($a['op'])] ?? PHP_INT_MAX;
+            $rb = $rank[self::entityOf($b['op'])] ?? PHP_INT_MAX;
 
             // À entité égale, l'ordre d'émission de l'appareil fait foi : c'est
             // l'ordre chronologique de ses écritures.
@@ -114,17 +116,20 @@ final class SyncPusher
         return array_column($indexed, 'op');
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  array<string, mixed>  $op
+     * @return array<string, mixed>
+     */
     private function applyOne(Company $company, Device $device, array $op, int $revision): array
     {
-        $key = (string) ($op['entity'] ?? '');
+        $key = self::entityOf($op);
 
         if (! SyncRegistry::has($key)) {
             return $this->rejected("Entité inconnue : {$key}");
         }
 
         $entity = SyncRegistry::get($key);
-        $id = (string) ($op['id'] ?? '');
+        $id = self::stringOf($op, 'id');
 
         if ($id === '') {
             return $this->rejected('Identifiant manquant.');
@@ -132,13 +137,13 @@ final class SyncPusher
 
         // Le profil de l'atelier ne se pousse que sur l'atelier courant : un
         // appareil ne renomme pas l'atelier du voisin.
-        if ($key === 'companies' && $id !== $company->getKey()) {
+        if ($key === 'companies' && $id !== $company->syncCompanyId()) {
             return $this->rejected("Cet atelier n'est pas celui de la session.");
         }
 
         $data = (array) ($op['data'] ?? []);
 
-        if (($op['op'] ?? 'upsert') === 'delete') {
+        if (self::stringOf($op, 'op', 'upsert') === 'delete') {
             return $this->applyDelete($company, $device, $entity, $id, $revision);
         }
 
@@ -172,12 +177,15 @@ final class SyncPusher
             return ['status' => PushOutcome::Applied->value, 'id' => $id, 'revision' => $revision];
         }
 
-        $model->markDeleted($device->getKey(), $revision);
+        $model->markDeleted($device->deviceId(), $revision);
 
         return ['status' => PushOutcome::Applied->value, 'id' => $id, 'revision' => $revision];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
     private function applyAppendOnly(
         Company $company,
         Device $device,
@@ -194,7 +202,7 @@ final class SyncPusher
             return [
                 'status' => PushOutcome::Applied->value,
                 'id' => $id,
-                'revision' => (int) $existing->getAttribute('revision'),
+                'revision' => $this->intOf($existing, 'revision'),
                 'noop' => true,
             ];
         }
@@ -205,7 +213,11 @@ final class SyncPusher
         return ['status' => PushOutcome::Applied->value, 'id' => $id, 'revision' => $revision];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $op
+     * @return array<string, mixed>
+     */
     private function applyNaturalKey(
         Company $company,
         Device $device,
@@ -246,7 +258,11 @@ final class SyncPusher
         return $result;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $op
+     * @return array<string, mixed>
+     */
     private function applyLastWriteWins(
         Company $company,
         Device $device,
@@ -264,11 +280,11 @@ final class SyncPusher
 
             // Le serveur détient plus récent : on ne l'écrase pas, on renvoie
             // sa version pour que l'appareil s'aligne.
-            if ($serverAt !== null && $clientAt !== null && $serverAt->gt($clientAt)) {
+            if ($serverAt instanceof Carbon && $clientAt !== null && $serverAt->gt($clientAt)) {
                 return [
                     'status' => PushOutcome::Conflict->value,
                     'id' => $id,
-                    'revision' => (int) $model->getAttribute('revision'),
+                    'revision' => $this->intOf($model, 'revision'),
                     'reason' => 'Version serveur plus récente.',
                     'server' => $this->serverSnapshot($entity, $model),
                 ];
@@ -283,7 +299,7 @@ final class SyncPusher
         $corrections = [];
 
         if ($entity->key === 'orders' && isset($data['order_code'])) {
-            $free = Order::availableCode($company->getKey(), (string) $data['order_code'], $id);
+            $free = Order::availableCode($company->syncCompanyId(), (string) $data['order_code'], $id);
 
             // Deux appareils hors ligne génèrent fatalement le même code. On ne
             // rejette pas pour si peu : on décline le code et on dit lequel a
@@ -308,6 +324,7 @@ final class SyncPusher
     /**
      * Reporte l'opération tant qu'un parent manque.
      *
+     * @param  array<string, mixed>  $data
      * @return array{entity: string, column: string, id: string}|null
      */
     private function missingParent(Company $company, SyncEntity $entity, array $data): ?array
@@ -331,10 +348,9 @@ final class SyncPusher
 
             $parent = SyncRegistry::get($parentKey);
 
-            $exists = $parent->newModel()->newQuery()
-                ->withTrashed()
+            $exists = $parent->query()
                 ->whereKey($value)
-                ->where('company_id', $company->getKey())
+                ->where($parent->companyColumn(), $company->syncCompanyId())
                 ->exists();
 
             if (! $exists) {
@@ -345,27 +361,29 @@ final class SyncPusher
         return null;
     }
 
+    /** @return (Model&Replicable)|null */
     private function find(Company $company, SyncEntity $entity, string $id): ?Model
     {
-        return $entity->newModel()->newQuery()
-            ->withTrashed()
+        return $entity->query()
             ->whereKey($id)
-            ->where($entity->key === 'companies' ? 'id' : 'company_id', $company->getKey())
+            ->where($entity->companyColumn(), $company->syncCompanyId())
             ->first();
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     * @return (Model&Replicable)|null
+     */
     private function findByNaturalKey(Company $company, SyncEntity $entity, array $data): ?Model
     {
         if ($entity->naturalKey === []) {
             return null;
         }
 
-        $query = $entity->newModel()->newQuery()
-            ->withTrashed()
-            ->where('company_id', $company->getKey());
+        $query = $entity->query()->where('company_id', $company->syncCompanyId());
 
         foreach ($entity->naturalKey as $column) {
-            $value = $column === 'company_id' ? $company->getKey() : ($data[$column] ?? null);
+            $value = $column === 'company_id' ? $company->syncCompanyId() : ($data[$column] ?? null);
 
             if ($value === null) {
                 return null;
@@ -377,7 +395,14 @@ final class SyncPusher
         return $query->first();
     }
 
-    /** Remplit le modèle sans jamais laisser l'appareil choisir son atelier. */
+    /**
+     * Remplit le modèle sans jamais laisser l'appareil choisir son atelier.
+     *
+     * @param  Model&Replicable  $model
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $op
+     * @return Model&Replicable
+     */
     private function fill(
         Model $model,
         SyncEntity $entity,
@@ -392,8 +417,8 @@ final class SyncPusher
         $model->fill($payload);
 
         $model->forceFill([
-            'company_id' => $company->getKey(),
-            'last_device_id' => $device->getKey(),
+            'company_id' => $company->syncCompanyId(),
+            'last_device_id' => $device->deviceId(),
             'revision' => $revision,
             'deleted_at' => null,
         ]);
@@ -406,12 +431,13 @@ final class SyncPusher
         }
 
         if ($entity->key === 'companies') {
-            $model->forceFill(['company_id' => $company->getKey()]);
+            $model->forceFill(['company_id' => $company->syncCompanyId()]);
         }
 
         return $model;
     }
 
+    /** @param  array<string, mixed>  $op */
     private function clientTimestamp(array $op): ?Carbon
     {
         $raw = $op['updated_at'] ?? null;
@@ -431,22 +457,49 @@ final class SyncPusher
         return $at->gt($ceiling) ? $ceiling : $at;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  Model&Replicable  $model
+     * @return array<string, mixed>
+     */
     private function serverSnapshot(SyncEntity $entity, Model $model): array
     {
         $data = [];
 
         foreach ($entity->fields as $field) {
             $value = $model->getAttribute($field);
-            $data[$field] = $value instanceof \DateTimeInterface
-                ? $value->format(\DateTimeInterface::ATOM)
+            $data[$field] = $value instanceof DateTimeInterface
+                ? $value->format(DateTimeInterface::ATOM)
                 : $value;
         }
 
         $data['company_id'] = $model->getAttribute('company_id');
-        $data['updated_at'] = $model->getAttribute('updated_at')?->toIso8601String();
+        $updatedAt = $model->getAttribute('updated_at');
+        $data['updated_at'] = $updatedAt instanceof DateTimeInterface
+            ? $updatedAt->format(DateTimeInterface::ATOM)
+            : null;
 
         return $data;
+    }
+
+    /** @param  array<string, mixed>  $op */
+    private static function entityOf(mixed $op): string
+    {
+        return is_array($op) ? self::stringOf($op, 'entity') : '';
+    }
+
+    /** @param  array<string, mixed>  $source */
+    private static function stringOf(array $source, string $key, string $default = ''): string
+    {
+        $value = $source[$key] ?? null;
+
+        return is_string($value) ? $value : $default;
+    }
+
+    private function intOf(Model $model, string $attribute): int
+    {
+        $value = $model->getAttribute($attribute);
+
+        return is_numeric($value) ? (int) $value : 0;
     }
 
     /** @return array<string, mixed> */
@@ -455,14 +508,18 @@ final class SyncPusher
         return ['status' => PushOutcome::Rejected->value, 'reason' => $reason];
     }
 
+    /**
+     * @param  array<string, mixed>  $op
+     * @param  array<string, mixed>  $result
+     */
     private function remember(Company $company, Device $device, array $op, array $result): void
     {
         SyncOperation::query()->create([
-            'device_id' => $device->getKey(),
-            'company_id' => $company->getKey(),
-            'operation_id' => (string) ($op['op_id'] ?? ''),
-            'entity' => (string) ($op['entity'] ?? ''),
-            'op' => (string) ($op['op'] ?? 'upsert'),
+            'device_id' => $device->deviceId(),
+            'company_id' => $company->syncCompanyId(),
+            'operation_id' => self::stringOf($op, 'op_id'),
+            'entity' => self::entityOf($op),
+            'op' => self::stringOf($op, 'op', 'upsert'),
             'status' => $result['status'],
             'result' => $result,
         ]);

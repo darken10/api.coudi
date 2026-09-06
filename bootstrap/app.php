@@ -6,6 +6,8 @@ use App\Http\Middleware\EnsureEmailVerified;
 use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\LogApiRequests;
+use App\Http\Middleware\ResolveCompany;
+use App\Http\Middleware\ResolveDevice;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -23,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'log.api' => LogApiRequests::class,
             'verified' => EnsureEmailVerified::class,
             'super_admin' => EnsureSuperAdmin::class,
+            'company' => ResolveCompany::class,
+            'device' => ResolveDevice::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -8,7 +8,13 @@ use App\Http\Controllers\Api\V1\Admin\DiagnosticController as AdminDiagnosticCon
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\TwoFactorController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CompanyController;
 use App\Http\Controllers\Api\V1\DiagnosticController;
+use App\Http\Controllers\Api\V1\SyncController;
+use App\Http\Controllers\Api\V1\Workshop\ClientController;
+use App\Http\Controllers\Api\V1\Workshop\EmployeeController;
+use App\Http\Controllers\Api\V1\Workshop\GarmentTypeController;
+use App\Http\Controllers\Api\V1\Workshop\MeasurementFieldController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -47,6 +53,55 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
         Route::put('settings', [DiagnosticController::class, 'updateSettings'])->name('api.v1.diagnostics.settings.update');
         Route::post('commands', [DiagnosticController::class, 'storeCommand'])->name('api.v1.diagnostics.commands.store');
         Route::post('commands/{command}/ack', [DiagnosticController::class, 'ackCommand'])->name('api.v1.diagnostics.commands.ack');
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Ateliers et synchronisation
+|--------------------------------------------------------------------------
+|
+| `companies` fonde le locataire : c'est le premier appel après connexion,
+| celui qui apparie les ateliers locaux à leurs homologues serveur.
+|
+| Le reste exige `X-Company-Id` (middleware `company`) et, pour la
+| synchronisation, `X-Device-Id` (middleware `device`) — l'unité de rattrapage
+| est l'installation, pas le compte.
+*/
+Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function (): void {
+    Route::prefix('companies')->group(function (): void {
+        Route::get('/', [CompanyController::class, 'index'])->name('api.v1.companies.index');
+        Route::post('/', [CompanyController::class, 'store'])->name('api.v1.companies.store');
+        Route::get('{company}', [CompanyController::class, 'show'])->name('api.v1.companies.show');
+        Route::put('{company}', [CompanyController::class, 'update'])->name('api.v1.companies.update');
+    });
+
+    Route::prefix('sync')->middleware(['company', 'device'])->group(function (): void {
+        Route::get('status', [SyncController::class, 'status'])->name('api.v1.sync.status');
+        Route::post('bootstrap', [SyncController::class, 'bootstrap'])->name('api.v1.sync.bootstrap');
+        Route::post('pull', [SyncController::class, 'pull'])->name('api.v1.sync.pull');
+        Route::post('push', [SyncController::class, 'push'])->name('api.v1.sync.push');
+    });
+
+    // CRUD REST du référentiel — console web. Le mobile n'y touche pas : il ne
+    // parle qu'aux quatre points d'entrée de synchronisation ci-dessus.
+    Route::middleware('company')->group(function (): void {
+        foreach ([
+            'clients' => ClientController::class,
+            'employees' => EmployeeController::class,
+            'garment-types' => GarmentTypeController::class,
+            'measurement-fields' => MeasurementFieldController::class,
+        ] as $uri => $controller) {
+            Route::prefix($uri)->group(function () use ($controller, $uri): void {
+                $name = str_replace('-', '_', $uri);
+                Route::get('/', [$controller, 'index'])->name("api.v1.{$name}.index");
+                Route::post('/', [$controller, 'store'])->name("api.v1.{$name}.store");
+                Route::get('{id}', [$controller, 'show'])->name("api.v1.{$name}.show");
+                Route::put('{id}', [$controller, 'update'])->name("api.v1.{$name}.update");
+                Route::delete('{id}', [$controller, 'destroy'])->name("api.v1.{$name}.destroy");
+                Route::post('{id}/restore', [$controller, 'restore'])->name("api.v1.{$name}.restore");
+            });
+        }
     });
 });
 

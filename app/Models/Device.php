@@ -33,6 +33,15 @@ final class Device extends Model
         'os_version',
     ];
 
+    /** Identifiant typé : `getKey()` renvoie `mixed` et empile les casts. */
+    public function deviceId(): string
+    {
+        /** @var string $id */
+        $id = $this->getKey();
+
+        return $id;
+    }
+
     public function isActive(): bool
     {
         return $this->revoked_at === null;
@@ -53,10 +62,16 @@ final class Device extends Model
     /** Curseur de rattrapage de cet appareil sur un atelier donné. */
     public function syncStateFor(Company|string $company): DeviceSyncState
     {
-        return DeviceSyncState::query()->firstOrCreate([
-            'device_id' => $this->getKey(),
-            'company_id' => $company instanceof Company ? $company->getKey() : $company,
-        ]);
+        // La valeur par défaut est posée ici, pas seulement en base : sans
+        // elle, l'instance fraîchement créée rapporte un curseur `null` là où
+        // l'appareil attend un entier.
+        return DeviceSyncState::query()->firstOrCreate(
+            [
+                'device_id' => $this->getKey(),
+                'company_id' => $company instanceof Company ? $company->getKey() : $company,
+            ],
+            ['last_pulled_revision' => 0],
+        );
     }
 
     /** @return array<string, string> */

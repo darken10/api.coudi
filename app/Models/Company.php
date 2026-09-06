@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -20,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property-read DiagnosticSetting|null $diagnosticSetting
  * @property-read int|null $clients_count
  */
-final class Company extends Model
+final class Company extends Model implements Replicable
 {
     /** @use HasFactory<\Database\Factories\CompanyFactory> */
     use HasFactory;
@@ -57,23 +58,19 @@ final class Company extends Model
         'archived_at',
     ];
 
-    protected static function booted(): void
+    /** À la création, le compteur n'existe pas encore : rien à prélever. */
+    public function shouldAllocateRevision(): bool
     {
-        /*
-         * Le compteur de l'atelier vit sur la ligne elle-même : à la création
-         * il n'existe pas encore, donc rien à prélever. On pose la révision 1
-         * et on aligne le compteur d'un même mouvement.
-         */
-        static::creating(function (self $company): void {
-            $company->setAttribute('revision', 1);
-            $company->setAttribute('sync_revision', 1);
-        });
+        return $this->exists;
     }
 
     /** L'atelier est son propre locataire. */
     public function syncCompanyId(): string
     {
-        return (string) $this->getKey();
+        /** @var string $id */
+        $id = $this->getKey();
+
+        return $id;
     }
 
     /** @return BelongsToMany<User, $this> */
@@ -112,6 +109,19 @@ final class Company extends Model
     public function diagnosticSetting(): HasOne
     {
         return $this->hasOne(DiagnosticSetting::class);
+    }
+
+    protected static function booted(): void
+    {
+        /*
+         * Le compteur de l'atelier vit sur la ligne elle-même : à la création
+         * il n'existe pas encore, donc rien à prélever. On pose la révision 1
+         * et on aligne le compteur d'un même mouvement.
+         */
+        self::creating(function (self $company): void {
+            $company->setAttribute('revision', 1);
+            $company->setAttribute('sync_revision', 1);
+        });
     }
 
     /** @return array<string, string> */

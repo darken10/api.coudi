@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Sync\RevisionSequence;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -21,6 +20,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  *  - effacement visible : la suppression est une pierre tombale, sans quoi un
  *    appareil hors ligne au moment de l'effacement ne l'apprendrait jamais.
  *
+ * Une écriture isolée doit s'entourer d'une transaction : le prélèvement de la
+ * révision et la ligne qu'elle numérote doivent devenir visibles ensemble, sous
+ * peine qu'un `pull` concurrent avance son curseur par-dessus.
+ *
  * @mixin Model
  */
 trait Syncable
@@ -30,22 +33,36 @@ trait Syncable
 
     public static function bootSyncable(): void
     {
-        static::saving(function (Model $model): void {
+        static::saving(function (self $model): void {
             /*
              * Le moteur de push réserve un bloc de révisions et les pose
              * lui-même : on ne prélève ici que pour les écritures isolées
              * (console web, commandes artisan, tests).
              */
-            if (! $model->isDirty('revision')) {
+            if (! $model->isDirty('revision') && $model->shouldAllocateRevision()) {
                 $model->setAttribute('revision', RevisionSequence::next($model->syncCompanyId()));
             }
         });
     }
 
+    /**
+     * Le compteur est-il déjà en place ?
+     *
+     * `Company` répond non à sa propre création : le compteur vit sur la ligne
+     * qu'on est en train d'insérer, il n'y a encore rien à y prélever.
+     */
+    public function shouldAllocateRevision(): bool
+    {
+        return true;
+    }
+
     /** Atelier propriétaire — `Company` se désigne elle-même. */
     public function syncCompanyId(): string
     {
-        return (string) $this->getAttribute('company_id');
+        /** @var string $companyId */
+        $companyId = $this->getAttribute('company_id');
+
+        return $companyId;
     }
 
     /**
@@ -58,19 +75,16 @@ trait Syncable
      */
     public function markDeleted(?string $deviceId = null, ?int $revision = null): void
     {
-        $this->forceFill(array_filter([
-            'deleted_at' => $this->freshTimestamp(),
-            'last_device_id' => $deviceId,
-            'revision' => $revision,
-        ], static fn (mixed $v): bool => $v !== null))->save();
-    }
+        $columns = ['deleted_at' => $this->freshTimestamp()];
 
-    /** Tout ce qui a changé au-delà d'une révision, effacements compris. */
-    public function scopeChangedSince(Builder $query, string $companyId, int $revision): Builder
-    {
-        return $query->withTrashed()
-            ->where('company_id', $companyId)
-            ->where('revision', '>', $revision)
-            ->orderBy('revision');
+        if ($deviceId !== null) {
+            $columns['last_device_id'] = $deviceId;
+        }
+
+        if ($revision !== null) {
+            $columns['revision'] = $revision;
+        }
+
+        $this->forceFill($columns)->save();
     }
 }

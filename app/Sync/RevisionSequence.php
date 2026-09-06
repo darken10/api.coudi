@@ -36,10 +36,7 @@ final class RevisionSequence
         }
 
         return DB::transaction(function () use ($companyId, $count): int {
-            $current = (int) DB::table('companies')
-                ->where('id', $companyId)
-                ->lockForUpdate()
-                ->value('sync_revision');
+            $current = self::read($companyId, locked: true);
 
             DB::table('companies')
                 ->where('id', $companyId)
@@ -52,6 +49,19 @@ final class RevisionSequence
     /** Révision courante de l'atelier : la borne haute d'un `pull`. */
     public static function current(string $companyId): int
     {
-        return (int) DB::table('companies')->where('id', $companyId)->value('sync_revision');
+        return self::read($companyId);
+    }
+
+    private static function read(string $companyId, bool $locked = false): int
+    {
+        $query = DB::table('companies')->where('id', $companyId);
+
+        if ($locked) {
+            $query->lockForUpdate();
+        }
+
+        $value = $query->value('sync_revision');
+
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

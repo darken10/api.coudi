@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Personnel de l'atelier. `payment_type` décide de la paie : au mois
  * (`salary`) ou à la pièce (barème dans `employee_piece_rates`).
  */
-final class Employee extends Model
+final class Employee extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * acompte hors ligne doivent produire deux paiements. Un arbitrage au dernier
  * écrivain ferait disparaître de l'argent.
  */
-final class OrderPayment extends Model
+final class OrderPayment extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

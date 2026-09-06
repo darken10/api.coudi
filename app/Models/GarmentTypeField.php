@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Le pivot porte son propre identifiant, sans quoi un appareil ne pourrait
  * ni désigner ni retirer une association donnée.
  */
-final class GarmentTypeField extends Model
+final class GarmentTypeField extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;

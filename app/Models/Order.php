@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
+use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * ne rejette pas pour autant — il renumérote et renvoie le code retenu dans le
  * résultat du push, à charge pour l'appareil de l'appliquer.
  */
-final class Order extends Model
+final class Order extends Model implements Replicable
 {
     use BelongsToCompany;
     use Syncable;
@@ -69,7 +70,7 @@ final class Order extends Model
             $candidate = "{$wanted}-{$suffix}";
         }
 
-        return $wanted.'-'.substr((string) $exceptId ?: uniqid(), 0, 6);
+        return $wanted.'-'.mb_substr((string) $exceptId ?: uniqid(), 0, 6);
     }
 
     /** @return BelongsTo<Client, $this> */
