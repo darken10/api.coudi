@@ -7,6 +7,7 @@ namespace App\Http\Middleware;
 use App\Models\Company;
 use App\Models\User;
 use Closure;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -53,7 +54,9 @@ final class ResolveCompany
         }
 
         $request->attributes->set(self::ATTRIBUTE, $company);
-        $role = $company->getAttribute('pivot')?->getAttribute('role');
+        $pivot = $company->getRelationValue('pivot');
+        $role = $pivot instanceof Pivot ? $pivot->getAttribute('role') : null;
+
         $request->attributes->set(self::ROLE_ATTRIBUTE, is_string($role) ? $role : null);
 
         return $next($request);

@@ -6,9 +6,9 @@ namespace App\Http\Controllers\Api\V1\Workshop;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolvesTenant;
+use App\Models\Contracts\Replicable;
 use App\Sync\SyncEntity;
 use App\Sync\SyncRegistry;
-use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Http\JsonResponse;
@@ -38,19 +38,6 @@ abstract class TenantResourceController extends ApiController
      * @return array<string, mixed>
      */
     abstract protected function rules(Request $request, bool $creating): array;
-
-    /**
-     * Champs validés, garantis exploitables par `fill()`.
-     *
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request, bool $creating): array
-    {
-        /** @var array<string, mixed> $data */
-        $data = $request->validate($this->rules($request, $creating));
-
-        return $data;
-    }
 
     /** GET /… */
     final public function index(Request $request): JsonResponse
@@ -217,9 +204,25 @@ abstract class TenantResourceController extends ApiController
     /** @return (Model&Replicable)|null */
     protected function findOrNull(Request $request, string $id): ?Model
     {
-        return $this->entity()->newModel()->newQuery()
+        /** @var (Model&Replicable)|null $model */
+        $model = $this->entity()->newModel()->newQuery()
             ->where('company_id', $this->company($request)->syncCompanyId())
             ->whereKey($id)
             ->first();
+
+        return $model;
+    }
+
+    /**
+     * Champs validés, garantis exploitables par `fill()`.
+     *
+     * @return array<string, mixed>
+     */
+    private function validated(Request $request, bool $creating): array
+    {
+        /** @var array<string, mixed> $data */
+        $data = $request->validate($this->rules($request, $creating));
+
+        return $data;
     }
 }

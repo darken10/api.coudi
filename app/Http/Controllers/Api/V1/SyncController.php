@@ -13,6 +13,7 @@ use App\Sync\RevisionSequence;
 use App\Sync\SyncPuller;
 use App\Sync\SyncPusher;
 use App\Sync\SyncRegistry;
+use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -118,12 +119,19 @@ final class SyncController extends ApiController
             'company_id' => $company->syncCompanyId(),
             'server_revision' => $serverRevision,
             'device_revision' => $state->last_pulled_revision,
-            'bootstrapped_at' => $state->bootstrapped_at?->toIso8601String(),
-            'last_pushed_at' => $state->last_pushed_at?->toIso8601String(),
+            'bootstrapped_at' => $this->iso($state->bootstrapped_at),
+            'last_pushed_at' => $this->iso($state->last_pushed_at),
             'behind' => max(0, $serverRevision - $state->last_pulled_revision),
             'entities' => SyncRegistry::keys(),
             'can_write' => $this->canWrite($request),
         ]);
+    }
+
+    private function iso(mixed $value): ?string
+    {
+        return $value instanceof DateTimeInterface
+            ? $value->format(DateTimeInterface::ATOM)
+            : null;
     }
 
     /**

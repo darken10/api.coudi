@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Models\Company;
 use App\Models\CompanySetting;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -141,8 +142,8 @@ final class CompanyController extends ApiController
     /** Rôle porté par le pivot, absent quand l'atelier n'a pas été chargé par la relation. */
     private function pivotRole(Company $company): ?string
     {
-        $pivot = $company->getAttribute('pivot');
-        $role = $pivot?->getAttribute('role');
+        $pivot = $company->getRelationValue('pivot');
+        $role = $pivot instanceof Pivot ? $pivot->getAttribute('role') : null;
 
         return is_string($role) ? $role : null;
     }

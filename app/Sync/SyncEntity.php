@@ -50,7 +50,10 @@ final readonly class SyncEntity
      */
     public function query(): Builder
     {
-        return $this->newModel()->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+        /** @var Builder<Model&Replicable> $query */
+        $query = $this->newModel()->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+
+        return $query;
     }
 
     /** Colonne portant l'atelier — `companies` se désigne par sa clé primaire. */

@@ -62,7 +62,7 @@ final class SyncPusher
 
                 if ($replays->has($opId)) {
                     $stored = $replays->get($opId);
-                    $results[] = ['op_id' => $opId, 'replayed' => true] + (array) ($stored?->result ?? []);
+                    $results[] = ['op_id' => $opId, 'replayed' => true] + (array) ($stored->result ?? []);
 
                     continue;
                 }
@@ -82,6 +82,20 @@ final class SyncPusher
 
             return $results;
         });
+    }
+
+    /** @param  array<string, mixed>  $op */
+    private static function entityOf(array $op): string
+    {
+        return self::stringOf($op, 'entity');
+    }
+
+    /** @param  array<string, mixed>  $source */
+    private static function stringOf(array $source, string $key, string $default = ''): string
+    {
+        $value = $source[$key] ?? null;
+
+        return is_string($value) ? $value : $default;
     }
 
     /**
@@ -141,7 +155,8 @@ final class SyncPusher
             return $this->rejected("Cet atelier n'est pas celui de la session.");
         }
 
-        $data = (array) ($op['data'] ?? []);
+        /** @var array<string, mixed> $data */
+        $data = is_array($op['data'] ?? null) ? $op['data'] : [];
 
         if (self::stringOf($op, 'op', 'upsert') === 'delete') {
             return $this->applyDelete($company, $device, $entity, $id, $revision);
@@ -299,7 +314,8 @@ final class SyncPusher
         $corrections = [];
 
         if ($entity->key === 'orders' && isset($data['order_code'])) {
-            $free = Order::availableCode($company->syncCompanyId(), (string) $data['order_code'], $id);
+            $wanted = is_string($data['order_code']) ? $data['order_code'] : '';
+            $free = Order::availableCode($company->syncCompanyId(), $wanted, $id);
 
             // Deux appareils hors ligne génèrent fatalement le même code. On ne
             // rejette pas pour si peu : on décline le code et on dit lequel a
@@ -332,7 +348,8 @@ final class SyncPusher
         $checks = $entity->parents;
 
         if ($entity->key === 'media_assets' && isset($data['owner_type'], $data['owner_id'])) {
-            $owner = self::MEDIA_OWNERS[$data['owner_type']] ?? null;
+            $ownerType = is_string($data['owner_type']) ? $data['owner_type'] : '';
+            $owner = self::MEDIA_OWNERS[$ownerType] ?? null;
 
             if ($owner !== null) {
                 $checks = ['owner_id' => $owner];
@@ -354,7 +371,11 @@ final class SyncPusher
                 ->exists();
 
             if (! $exists) {
-                return ['entity' => $parentKey, 'column' => $column, 'id' => (string) $value];
+                return [
+                    'entity' => $parentKey,
+                    'column' => $column,
+                    'id' => is_scalar($value) ? (string) $value : '',
+                ];
             }
         }
 
@@ -479,20 +500,6 @@ final class SyncPusher
             : null;
 
         return $data;
-    }
-
-    /** @param  array<string, mixed>  $op */
-    private static function entityOf(mixed $op): string
-    {
-        return is_array($op) ? self::stringOf($op, 'entity') : '';
-    }
-
-    /** @param  array<string, mixed>  $source */
-    private static function stringOf(array $source, string $key, string $default = ''): string
-    {
-        $value = $source[$key] ?? null;
-
-        return is_string($value) ? $value : $default;
     }
 
     private function intOf(Model $model, string $attribute): int

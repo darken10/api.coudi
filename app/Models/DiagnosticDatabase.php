@@ -11,16 +11,16 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * @property int         $id
- * @property int         $user_id
+ * @property int $id
+ * @property int $user_id
  * @property string|null $version
  * @property Carbon|null $sent_at
- * @property string      $db_name
- * @property string      $file_path
- * @property int         $file_size
+ * @property string $db_name
+ * @property string $file_path
+ * @property int $file_size
  * @property string|null $platform
- * @property Carbon      $created_at
- * @property Carbon      $updated_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
  */
 #[Fillable([
     'user_id',
@@ -34,7 +34,7 @@ use Illuminate\Support\Facades\Storage;
 final class DiagnosticDatabase extends Model
 {
     protected $casts = [
-        'sent_at'   => 'datetime',
+        'sent_at' => 'datetime',
         'file_size' => 'integer',
     ];
 

@@ -22,12 +22,27 @@ final class RefreshToken extends Model
 {
     protected $fillable = ['user_id', 'token', 'expires_at'];
 
-    protected function casts(): array
+    /**
+     * Create a new refresh token for a user.
+     *
+     * @return array{0: string, 1: self} [plaintext token, model]
+     */
+    public static function issue(int $userId): array
     {
-        return [
-            'expires_at' => 'datetime',
-            'revoked_at' => 'datetime',
-        ];
+        $plain = Str::random(60);
+
+        $model = self::create([
+            'user_id' => $userId,
+            'token' => hash('sha256', $plain),
+            'expires_at' => now()->addDays((int) config('tokens.refresh_expiry_days', 365)),
+        ]);
+
+        return [$plain, $model];
+    }
+
+    public static function findByPlainToken(string $plain): ?self
+    {
+        return self::where('token', hash('sha256', $plain))->first();
     }
 
     public function user(): BelongsTo
@@ -45,26 +60,11 @@ final class RefreshToken extends Model
         $this->update(['revoked_at' => now()]);
     }
 
-    /**
-     * Create a new refresh token for a user.
-     *
-     * @return array{0: string, 1: self}  [plaintext token, model]
-     */
-    public static function issue(int $userId): array
+    protected function casts(): array
     {
-        $plain = Str::random(60);
-
-        $model = self::create([
-            'user_id'    => $userId,
-            'token'      => hash('sha256', $plain),
-            'expires_at' => now()->addDays((int) config('tokens.refresh_expiry_days', 365)),
-        ]);
-
-        return [$plain, $model];
-    }
-
-    public static function findByPlainToken(string $plain): ?self
-    {
-        return self::where('token', hash('sha256', $plain))->first();
+        return [
+            'expires_at' => 'datetime',
+            'revoked_at' => 'datetime',
+        ];
     }
 }

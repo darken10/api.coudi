@@ -16,10 +16,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 final class Client extends Model implements Replicable
 {
-    /** @use HasFactory<\Database\Factories\ClientFactory> */
     use BelongsToCompany;
 
+    /** @use HasFactory<\Database\Factories\ClientFactory> */
     use HasFactory;
+
     use Syncable;
 
     /** @var list<string> */

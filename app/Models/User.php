@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -90,11 +91,15 @@ final class User extends Authenticatable implements MustVerifyEmail
     /** Rôle tenu dans un atelier, ou `null` si le compte n'y a pas accès. */
     public function roleIn(Company|string $company): ?string
     {
-        $companyId = $company instanceof Company ? $company->getKey() : $company;
+        $companyId = $company instanceof Company ? $company->syncCompanyId() : $company;
 
+        /** @var Company|null $membership */
         $membership = $this->companies()->find($companyId);
 
-        return $membership?->getAttribute('pivot')?->role;
+        $pivot = $membership?->getRelationValue('pivot');
+        $role = $pivot instanceof Pivot ? $pivot->getAttribute('role') : null;
+
+        return is_string($role) ? $role : null;
     }
 
     public function canWriteIn(Company|string $company): bool

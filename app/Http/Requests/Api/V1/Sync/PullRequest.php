@@ -29,7 +29,7 @@ final class PullRequest extends FormRequest
 
     public function since(): int
     {
-        return (int) ($this->input('since') ?? 0);
+        return $this->integer('since');
     }
 
     /** @return list<string> */
@@ -43,6 +43,6 @@ final class PullRequest extends FormRequest
 
     public function limit(): int
     {
-        return (int) ($this->input('limit') ?? SyncPuller::DEFAULT_LIMIT);
+        return $this->integer('limit', SyncPuller::DEFAULT_LIMIT) ?: SyncPuller::DEFAULT_LIMIT;
     }
 }

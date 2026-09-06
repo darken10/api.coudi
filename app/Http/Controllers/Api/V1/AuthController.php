@@ -28,8 +28,8 @@ final class AuthController extends ApiController
     public function register(RegisterRequest $request): JsonResponse
     {
         $user = User::query()->create([
-            'name'     => $request->name,
-            'email'    => $request->email,
+            'name' => $request->name,
+            'email' => $request->email,
             'password' => Hash::make($request->password),
         ]);
 
@@ -65,15 +65,15 @@ final class AuthController extends ApiController
         // Rotate: revoke the old token, issue a fresh pair
         $refreshToken->revoke();
 
-        $expiresAt    = $this->accessTokenExpiresAt();
-        $accessToken  = $user->createToken('auth-token', ['*'], $expiresAt)->plainTextToken;
+        $expiresAt = $this->accessTokenExpiresAt();
+        $accessToken = $user->createToken('auth-token', ['*'], $expiresAt)->plainTextToken;
         [$newRefresh] = RefreshToken::issue($user->id);
 
         return $this->success([
-            'access_token'  => $accessToken,
+            'access_token' => $accessToken,
             'refresh_token' => $newRefresh,
-            'token_type'    => 'Bearer',
-            'expires_at'    => $expiresAt->toIso8601String(),
+            'token_type' => 'Bearer',
+            'expires_at' => $expiresAt->toIso8601String(),
         ], 'Token refreshed');
     }
 
@@ -158,8 +158,8 @@ final class AuthController extends ApiController
         return $this->error(
             match ($status) {
                 Password::INVALID_TOKEN => 'Invalid or expired reset token',
-                Password::INVALID_USER  => 'User not found',
-                default                 => 'Unable to reset password',
+                Password::INVALID_USER => 'User not found',
+                default => 'Unable to reset password',
             },
             400
         );
@@ -172,16 +172,16 @@ final class AuthController extends ApiController
      */
     private function buildTokenPayload(User $user): array
     {
-        $expiresAt   = $this->accessTokenExpiresAt();
+        $expiresAt = $this->accessTokenExpiresAt();
         $accessToken = $user->createToken('auth-token', ['*'], $expiresAt)->plainTextToken;
-        [$refresh]   = RefreshToken::issue($user->id);
+        [$refresh] = RefreshToken::issue($user->id);
 
         return [
-            'user'          => new UserResource($user),
-            'access_token'  => $accessToken,
+            'user' => new UserResource($user),
+            'access_token' => $accessToken,
             'refresh_token' => $refresh,
-            'token_type'    => 'Bearer',
-            'expires_at'    => $expiresAt->toIso8601String(),
+            'token_type' => 'Bearer',
+            'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
 
