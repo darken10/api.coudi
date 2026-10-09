@@ -289,6 +289,8 @@ describe('Admin guard', function (): void {
         $this->actingAs(superAdmin(), 'sanctum')
             ->getJson('/api/v1/admin/overview')
             ->assertOk()
+            ->assertJsonCount(7, 'data.activity')
+            ->assertJsonPath('data.orders.total', 0)
             ->assertJsonPath('data.attention.verbose_logging', [])
             ->assertJsonPath('data.attention.failed_acks', [])
             ->assertJsonPath('data.attention.failed_logins_24h', 0);

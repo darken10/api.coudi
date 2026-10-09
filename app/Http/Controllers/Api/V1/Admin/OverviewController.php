@@ -12,6 +12,7 @@ use App\Models\DiagnosticCommand;
 use App\Models\DiagnosticCommandAck;
 use App\Models\DiagnosticSetting;
 use App\Models\LoginAudit;
+use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -42,6 +43,11 @@ final class OverviewController extends ApiController
                 'total' => DiagnosticCommand::query()->count(),
                 'unapplied' => DiagnosticCommand::query()->doesntHave('acks')->count(),
             ],
+            'orders' => [
+                'total' => Order::query()->count(),
+                'by_status' => $this->ordersByStatus(),
+            ],
+            'activity' => $this->activity(),
             'attention' => [
                 'verbose_logging' => $this->verboseLogging(),
                 'failed_acks' => $this->failedAcks(),
@@ -156,5 +162,63 @@ final class OverviewController extends ApiController
         }
 
         return $rows;
+    }
+
+    /**
+     * Séries légères pour le tableau de bord : sept jours suffisent pour voir
+     * une activité récente sans faire télécharger tout l'historique mobile.
+     *
+     * @return list<array{date: string, clients: int, orders: int, bundles: int}>
+     */
+    private function activity(): array
+    {
+        $from = now()->subDays(6)->startOfDay();
+        $clients = $this->dailyCounts(Client::query(), 'created_at', $from);
+        $orders = $this->dailyCounts(Order::query(), 'created_at', $from);
+        $bundles = $this->dailyCounts(DiagnosticBundle::query(), 'sent_at', $from);
+        $rows = [];
+
+        foreach (range(6, 0) as $daysAgo) {
+            $date = now()->subDays($daysAgo)->toDateString();
+            $rows[] = [
+                'date' => $date,
+                'clients' => $clients[$date] ?? 0,
+                'orders' => $orders[$date] ?? 0,
+                'bundles' => $bundles[$date] ?? 0,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** @return array<string, int> */
+    private function dailyCounts($query, string $column, $from): array
+    {
+        /** @var array<string, int> $counts */
+        $counts = $query->where($column, '>=', $from)
+            ->selectRaw("DATE({$column}) as day, COUNT(*) as total")
+            ->groupBy('day')
+            ->pluck('total', 'day')
+            ->map(fn ($total): int => (int) $total)
+            ->all();
+
+        return $counts;
+    }
+
+    /** @return list<array{status: string, count: int}> */
+    private function ordersByStatus(): array
+    {
+        /** @var array<string, int> $counts */
+        $counts = Order::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->map(fn ($total): int => (int) $total)
+            ->all();
+
+        return array_map(
+            fn (string $status): array => ['status' => $status, 'count' => $counts[$status] ?? 0],
+            ['new', 'in_progress', 'fitting', 'done', 'delivered', 'paid']
+        );
     }
 }
