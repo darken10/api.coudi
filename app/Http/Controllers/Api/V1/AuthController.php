@@ -73,7 +73,7 @@ final class AuthController extends ApiController
             'access_token' => $accessToken,
             'refresh_token' => $newRefresh,
             'token_type' => 'Bearer',
-            'expires_at' => $expiresAt->toIso8601String(),
+            'expires_at' => $expiresAt?->toIso8601String(),
         ], 'Token refreshed');
     }
 
@@ -181,17 +181,24 @@ final class AuthController extends ApiController
             'access_token' => $accessToken,
             'refresh_token' => $refresh,
             'token_type' => 'Bearer',
-            'expires_at' => $expiresAt->toIso8601String(),
+            'expires_at' => $expiresAt?->toIso8601String(),
         ];
     }
 
-    private function accessTokenExpiresAt(): Carbon
+    /**
+     * Échéance du jeton d'accès, ou null lorsqu'il n'expire pas.
+     *
+     * Null, et non une date lointaine : `personal_access_tokens.expires_at` est
+     * une colonne TIMESTAMP, que MySQL borne à 2038-01-19 — l'entier signé de
+     * 32 bits. Un `addYears(100)` y était rejeté (« Incorrect datetime value »)
+     * et faisait échouer toute connexion, alors que SQLite, sans type date,
+     * l'acceptait en développement. `createToken` accepte bien null et traite
+     * alors le jeton comme sans échéance, ce que décrit déjà config/tokens.php.
+     */
+    private function accessTokenExpiresAt(): ?Carbon
     {
         $days = config('tokens.access_expiry_days');
 
-        // Null = never expires; fallback to 100 years for createToken (which requires a date)
-        return $days !== null
-            ? now()->addDays((int) $days)
-            : now()->addYears(100);
+        return $days !== null ? now()->addDays((int) $days) : null;
     }
 }
