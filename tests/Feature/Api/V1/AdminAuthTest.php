@@ -210,6 +210,59 @@ describe('Admin guard', function (): void {
             ->assertJsonPath('data.log_level', 'info');
     });
 
+    it('lets a super admin manage a workshop dossier without bypassing sync revisions', function (): void {
+        $company = Company::factory()->create(['name' => 'Atelier Nafissa']);
+        $admin = superAdmin();
+
+        $before = $company->sync_revision;
+        $client = $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/v1/admin/companies/{$company->id}/resources/clients", [
+                'data' => ['name' => 'Aïssata Ouédraogo', 'is_vip' => true],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.name', 'Aïssata Ouédraogo')
+            ->json('data');
+
+        expect($company->fresh()->sync_revision)->toBeGreaterThan($before);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson("/api/v1/admin/companies/{$company->id}/workspace")
+            ->assertOk()
+            ->assertJsonPath('data.counts.clients', 1);
+
+        $this->actingAs($admin, 'sanctum')
+            ->putJson("/api/v1/admin/companies/{$company->id}/resources/clients/{$client['id']}", [
+                'data' => ['name' => 'Aïssata O.'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Aïssata O.');
+
+        $this->actingAs($admin, 'sanctum')
+            ->deleteJson("/api/v1/admin/companies/{$company->id}/resources/clients/{$client['id']}")
+            ->assertOk();
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/v1/admin/companies/{$company->id}/resources/clients/{$client['id']}/restore")
+            ->assertOk()
+            ->assertJsonPath('data.deleted_at', null);
+    });
+
+    it('rejects a cross-workshop reference in the admin dossier', function (): void {
+        $company = Company::factory()->create();
+        $otherCompany = Company::factory()->create();
+        $foreignClient = App\Models\Client::query()->create([
+            'company_id' => $otherCompany->id,
+            'name' => 'Client externe',
+        ]);
+
+        $this->actingAs(superAdmin(), 'sanctum')
+            ->postJson("/api/v1/admin/companies/{$company->id}/resources/orders", [
+                'data' => ['client_id' => $foreignClient->id, 'order_code' => 'CMD-001'],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['data.client_id']);
+    });
+
     it('flags a workshop left on verbose logging', function (): void {
         $company = Company::factory()->create(['name' => 'Atelier Nafissa']);
         DiagnosticSetting::create([

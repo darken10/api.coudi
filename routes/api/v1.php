@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\CompanyController as AdminCompanyControlle
 use App\Http\Controllers\Api\V1\Admin\DiagnosticController as AdminDiagnosticController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\TwoFactorController;
+use App\Http\Controllers\Api\V1\Admin\WorkshopResourceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CompanyController;
 use App\Http\Controllers\Api\V1\DiagnosticController;
@@ -153,6 +154,25 @@ Route::prefix('admin')->group(function (): void {
                 ->name('api.v1.admin.companies.diagnostics.update');
             Route::delete('{company}/diagnostic-settings', [AdminCompanyController::class, 'resetDiagnosticSettings'])
                 ->name('api.v1.admin.companies.diagnostics.reset');
+
+            // Le super administrateur peut corriger tout le dossier métier
+            // d'un atelier depuis le web. Les écritures restent synchronisables.
+            Route::get('{company}/workspace', [WorkshopResourceController::class, 'overview'])
+                ->name('api.v1.admin.companies.workspace');
+            Route::prefix('{company}/resources/{entity}')->group(function (): void {
+                Route::get('/', [WorkshopResourceController::class, 'index'])
+                    ->name('api.v1.admin.workshop-resources.index');
+                Route::post('/', [WorkshopResourceController::class, 'store'])
+                    ->name('api.v1.admin.workshop-resources.store');
+                Route::get('{id}', [WorkshopResourceController::class, 'show'])
+                    ->name('api.v1.admin.workshop-resources.show');
+                Route::put('{id}', [WorkshopResourceController::class, 'update'])
+                    ->name('api.v1.admin.workshop-resources.update');
+                Route::delete('{id}', [WorkshopResourceController::class, 'destroy'])
+                    ->name('api.v1.admin.workshop-resources.destroy');
+                Route::post('{id}/restore', [WorkshopResourceController::class, 'restore'])
+                    ->name('api.v1.admin.workshop-resources.restore');
+            });
         });
 
         Route::prefix('diagnostics')->group(function (): void {
