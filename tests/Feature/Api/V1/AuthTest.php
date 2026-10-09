@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -83,6 +85,41 @@ describe('Login', function (): void {
                 'success' => true,
                 'message' => 'Login successful',
             ]);
+    });
+
+    /*
+     * MySQL borne TIMESTAMP à 2038-01-19 — l'entier signé de 32 bits. Une
+     * échéance au-delà fait échouer l'insertion du jeton, donc la connexion
+     * entière. SQLite n'a pas de type date et accepte n'importe quelle valeur :
+     * sans ces deux cas, la régression ne réapparaîtrait qu'en production.
+     */
+    it('stores no expiry when tokens are configured to never expire', function (): void {
+        config(['tokens.access_expiry_days' => null]);
+
+        $user = User::factory()->create(['password' => bcrypt('password123')]);
+
+        $this->postJson('/api/v1/login', [
+            'email' => $user->email,
+            'password' => 'password123',
+        ])->assertStatus(200)->assertJsonPath('data.expires_at', null);
+
+        expect(DB::table('personal_access_tokens')->latest('id')->value('expires_at'))->toBeNull();
+    });
+
+    it('keeps a configured expiry within the MySQL TIMESTAMP range', function (): void {
+        config(['tokens.access_expiry_days' => 30]);
+
+        $user = User::factory()->create(['password' => bcrypt('password123')]);
+
+        $response = $this->postJson('/api/v1/login', [
+            'email' => $user->email,
+            'password' => 'password123',
+        ])->assertStatus(200);
+
+        $expiresAt = Carbon::parse($response->json('data.expires_at'));
+
+        expect($expiresAt->isFuture())->toBeTrue()
+            ->and($expiresAt->lessThan(Carbon::create(2038, 1, 19)))->toBeTrue();
     });
 
     it('fails login with invalid credentials', function (): void {
