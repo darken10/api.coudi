@@ -8,9 +8,13 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\V1\Diagnostic\StoreDiagnosticCommandRequest;
 use App\Models\DiagnosticBundle;
 use App\Models\DiagnosticCommand;
+use App\Services\DiagnosticSqliteReader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
+use SQLite3;
+use SQLite3Result;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipArchive;
 
@@ -142,6 +146,81 @@ final class DiagnosticController extends ApiController
             'size' => $size,
             'content' => $content === false ? '' : $content,
         ]);
+    }
+
+    /** Liste les tables de la copie SQLite envoyée par l'application. */
+    public function databaseTables(DiagnosticBundle $bundle, DiagnosticSqliteReader $reader): JsonResponse
+    {
+        try {
+            return $this->success($reader->read($bundle, function (SQLite3 $db): array {
+                $result = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+                $tables = [];
+                while (($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
+                    $tables[] = $row['name'];
+                }
+
+                return ['tables' => $tables];
+            }));
+        } catch (RuntimeException $error) {
+            return $this->error($error->getMessage(), 422);
+        }
+    }
+
+    /** Affiche une page de lignes, sans accepter de SQL libre ni modifier la copie. */
+    public function databaseRows(Request $request, DiagnosticBundle $bundle, DiagnosticSqliteReader $reader): JsonResponse
+    {
+        $validated = $request->validate([
+            'table' => ['required', 'string'],
+            'page' => ['sometimes', 'integer', 'min:1', 'max:100000'],
+        ]);
+        $table = $validated['table'];
+        $page = (int) ($validated['page'] ?? 1);
+        $perPage = 50;
+
+        try {
+            return $this->success($reader->read($bundle, function (SQLite3 $db) use ($table, $page, $perPage): array {
+                $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name AND name NOT LIKE 'sqlite_%'");
+                $check->bindValue(':name', $table, SQLITE3_TEXT);
+                if ($check->execute()->fetchArray() === false) {
+                    throw new RuntimeException('Table SQLite introuvable.');
+                }
+
+                $quoted = '"'.str_replace('"', '""', $table).'"';
+                $columnsResult = $db->query("PRAGMA table_info({$quoted})");
+                $columns = [];
+                while (($column = $columnsResult->fetchArray(SQLITE3_ASSOC)) !== false) {
+                    $columns[] = $column['name'];
+                }
+
+                $statement = $db->prepare("SELECT * FROM {$quoted} LIMIT :limit OFFSET :offset");
+                $statement->bindValue(':limit', $perPage + 1, SQLITE3_INTEGER);
+                $statement->bindValue(':offset', ($page - 1) * $perPage, SQLITE3_INTEGER);
+                $result = $statement->execute();
+                $rows = [];
+                while (($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
+                    $rows[] = array_map(static function (mixed $value): mixed {
+                        if (is_string($value)) {
+                            if (! mb_check_encoding($value, 'UTF-8')) {
+                                return '[données binaires]';
+                            }
+
+                            return mb_strlen($value) > 2000 ? mb_substr($value, 0, 2000).'…' : $value;
+                        }
+
+                        return $value;
+                    }, $row);
+                }
+
+                $hasMore = count($rows) > $perPage;
+                if ($hasMore) {
+                    array_pop($rows);
+                }
+
+                return compact('table', 'columns', 'rows', 'page', 'hasMore');
+            }));
+        } catch (RuntimeException $error) {
+            return $this->error($error->getMessage(), 422);
+        }
     }
 
     public function downloadBundle(DiagnosticBundle $bundle): StreamedResponse|JsonResponse

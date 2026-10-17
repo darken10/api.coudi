@@ -179,6 +179,8 @@ Route::prefix('admin')->group(function (): void {
             Route::get('bundles', [AdminDiagnosticController::class, 'bundles'])->name('api.v1.admin.bundles.index');
             Route::get('bundles/{bundle}', [AdminDiagnosticController::class, 'showBundle'])->name('api.v1.admin.bundles.show');
             Route::get('bundles/{bundle}/entry', [AdminDiagnosticController::class, 'bundleEntry'])->name('api.v1.admin.bundles.entry');
+            Route::get('bundles/{bundle}/database/tables', [AdminDiagnosticController::class, 'databaseTables'])->name('api.v1.admin.bundles.database.tables');
+            Route::get('bundles/{bundle}/database/rows', [AdminDiagnosticController::class, 'databaseRows'])->name('api.v1.admin.bundles.database.rows');
             Route::get('bundles/{bundle}/download', [AdminDiagnosticController::class, 'downloadBundle'])->name('api.v1.admin.bundles.download');
             Route::delete('bundles/{bundle}', [AdminDiagnosticController::class, 'destroyBundle'])->name('api.v1.admin.bundles.destroy');
 
