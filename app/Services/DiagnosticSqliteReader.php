@@ -16,7 +16,12 @@ final class DiagnosticSqliteReader
 {
     private const MAX_DATABASE_BYTES = 50 * 1024 * 1024;
 
-    /** @template T @param callable(SQLite3): T $callback @return T */
+    /**
+     * @template T
+     *
+     * @param  callable(SQLite3): T  $callback
+     * @return T
+     */
     public function read(DiagnosticBundle $bundle, callable $callback): mixed
     {
         $archivePath = Storage::disk('local')->path($bundle->file_path);
@@ -36,13 +41,13 @@ final class DiagnosticSqliteReader
             // Le nom vient de la métadonnée du rapport, jamais d'un chemin fourni au GET.
             $name = $bundle->db_name;
             if (! is_string($name) || $name === '' || basename($name) !== $name) {
-                throw new RuntimeException("Ce rapport ne contient pas de base SQLite.");
+                throw new RuntimeException('Ce rapport ne contient pas de base SQLite.');
             }
 
             $index = $zip->locateName($name);
             $stat = $index === false ? false : $zip->statIndex($index);
             if ($stat === false) {
-                throw new RuntimeException("Ce rapport ne contient pas de base SQLite.");
+                throw new RuntimeException('Ce rapport ne contient pas de base SQLite.');
             }
             if ((int) $stat['size'] > self::MAX_DATABASE_BYTES) {
                 throw new RuntimeException('La base SQLite dépasse la taille autorisée.');

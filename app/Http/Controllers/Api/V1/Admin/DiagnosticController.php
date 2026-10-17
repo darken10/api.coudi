@@ -153,6 +153,9 @@ final class DiagnosticController extends ApiController
         try {
             return $this->success($reader->read($bundle, function (SQLite3 $db): array {
                 $result = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+                if ($result === false) {
+                    throw new RuntimeException('Impossible de lire les tables SQLite.');
+                }
                 $tables = [];
                 while (($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
                     $tables[] = $row['name'];
@@ -168,33 +171,46 @@ final class DiagnosticController extends ApiController
     /** Affiche une page de lignes, sans accepter de SQL libre ni modifier la copie. */
     public function databaseRows(Request $request, DiagnosticBundle $bundle, DiagnosticSqliteReader $reader): JsonResponse
     {
-        $validated = $request->validate([
+        $request->validate([
             'table' => ['required', 'string'],
             'page' => ['sometimes', 'integer', 'min:1', 'max:100000'],
         ]);
-        $table = $validated['table'];
-        $page = (int) ($validated['page'] ?? 1);
+        $table = $request->string('table')->value();
+        $page = $request->integer('page', 1);
         $perPage = 50;
 
         try {
             return $this->success($reader->read($bundle, function (SQLite3 $db) use ($table, $page, $perPage): array {
                 $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name AND name NOT LIKE 'sqlite_%'");
+                if ($check === false) {
+                    throw new RuntimeException('Impossible de lire les tables SQLite.');
+                }
                 $check->bindValue(':name', $table, SQLITE3_TEXT);
-                if ($check->execute()->fetchArray() === false) {
+                $checked = $check->execute();
+                if ($checked === false || $checked->fetchArray() === false) {
                     throw new RuntimeException('Table SQLite introuvable.');
                 }
 
                 $quoted = '"'.str_replace('"', '""', $table).'"';
                 $columnsResult = $db->query("PRAGMA table_info({$quoted})");
+                if ($columnsResult === false) {
+                    throw new RuntimeException('Impossible de lire les colonnes SQLite.');
+                }
                 $columns = [];
                 while (($column = $columnsResult->fetchArray(SQLITE3_ASSOC)) !== false) {
                     $columns[] = $column['name'];
                 }
 
                 $statement = $db->prepare("SELECT * FROM {$quoted} LIMIT :limit OFFSET :offset");
+                if ($statement === false) {
+                    throw new RuntimeException('Impossible de lire cette table SQLite.');
+                }
                 $statement->bindValue(':limit', $perPage + 1, SQLITE3_INTEGER);
                 $statement->bindValue(':offset', ($page - 1) * $perPage, SQLITE3_INTEGER);
                 $result = $statement->execute();
+                if ($result === false) {
+                    throw new RuntimeException('Impossible de lire les lignes SQLite.');
+                }
                 $rows = [];
                 while (($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
                     $rows[] = array_map(static function (mixed $value): mixed {
