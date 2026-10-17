@@ -7,10 +7,13 @@ use App\Models\Company;
 use App\Models\Device;
 use App\Models\GarmentType;
 use App\Models\MeasurementField;
+use App\Models\MediaAsset;
 use App\Models\Order;
 use App\Models\OrderPayment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 
@@ -113,6 +116,60 @@ describe('Cloisonnement', function (): void {
         ])->assertOk();
 
         $this->assertDatabaseHas('devices', ['id' => $neuf, 'user_id' => $user->id]);
+    });
+});
+
+describe('Fichiers médias', function (): void {
+    it('transfère un fichier par atelier et permet sa récupération', function (): void {
+        Storage::fake('local');
+        [, $company, $device] = workshop();
+        $media = MediaAsset::query()->create([
+            'company_id' => $company->getKey(),
+            'owner_type' => 'order',
+            'owner_id' => (string) Str::uuid(),
+            'category' => 'fabric',
+            'type' => 'image',
+            'uri' => 'file:///photo-source.jpg',
+            'file_name' => 'pagne.jpg',
+        ]);
+        $path = "/api/v1/sync/media/{$media->getKey()}/file";
+        $revision = $media->revision;
+
+        $this->get($path, syncHeaders($company, $device))->assertNotFound();
+        $this->post($path, ['file' => UploadedFile::fake()->image('pagne.jpg')], syncHeaders($company, $device))
+            ->assertOk()
+            ->assertJsonPath('data.id', $media->getKey());
+
+        $media->refresh();
+        expect($media->storage_path)->not->toBeNull()
+            ->and($media->checksum)->toHaveLength(64)
+            ->and($media->uploaded_at)->not->toBeNull()
+            ->and($media->revision)->toBeGreaterThan($revision);
+        Storage::disk('local')->assertExists($media->storage_path);
+        $this->get($path, syncHeaders($company, $device))->assertOk();
+        $this->postJson('/api/v1/sync/pull', ['since' => $revision], syncHeaders($company, $device))
+            ->assertOk()
+            ->assertJsonPath('data.changes.media_assets.0.id', $media->getKey());
+    });
+
+    it('ne laisse pas lire un média d’un autre atelier', function (): void {
+        Storage::fake('local');
+        [$user, $company, $device] = workshop();
+        $media = MediaAsset::query()->create([
+            'company_id' => $company->getKey(),
+            'owner_type' => 'order',
+            'owner_id' => (string) Str::uuid(),
+            'category' => 'fabric',
+            'type' => 'image',
+            'uri' => 'file:///photo-source.jpg',
+        ]);
+        $other = Company::query()->create(['name' => 'Autre atelier']);
+        $other->members()->attach($user->id, ['role' => Company::ROLE_OWNER, 'joined_at' => now()]);
+        $path = "/api/v1/sync/media/{$media->getKey()}/file";
+
+        $this->get($path, syncHeaders($other, $device))->assertNotFound();
+        $this->post($path, ['file' => UploadedFile::fake()->image('pagne.jpg')], syncHeaders($other, $device))
+            ->assertNotFound();
     });
 });
 
