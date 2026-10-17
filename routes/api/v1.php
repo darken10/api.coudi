@@ -82,8 +82,8 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
         Route::post('bootstrap', [SyncController::class, 'bootstrap'])->name('api.v1.sync.bootstrap');
         Route::post('pull', [SyncController::class, 'pull'])->name('api.v1.sync.pull');
         Route::post('push', [SyncController::class, 'push'])->name('api.v1.sync.push');
-        Route::post('media/{asset}/file', [\App\Http\Controllers\Api\V1\SyncMediaController::class, 'upload'])->name('api.v1.sync.media.upload');
-        Route::get('media/{asset}/file', [\App\Http\Controllers\Api\V1\SyncMediaController::class, 'download'])->name('api.v1.sync.media.download');
+        Route::post('media/{asset}/file', [App\Http\Controllers\Api\V1\SyncMediaController::class, 'upload'])->name('api.v1.sync.media.upload');
+        Route::get('media/{asset}/file', [App\Http\Controllers\Api\V1\SyncMediaController::class, 'download'])->name('api.v1.sync.media.download');
     });
 
     // CRUD REST du référentiel — console web. Le mobile n'y touche pas : il ne

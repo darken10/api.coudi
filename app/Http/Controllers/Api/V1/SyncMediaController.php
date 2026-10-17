@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 /** Transfert du binaire ; la ligne media_assets continue de passer par push/pull. */
 final class SyncMediaController extends ApiController
@@ -73,7 +74,7 @@ final class SyncMediaController extends ApiController
                     'mime_type' => $mime,
                 ])->save();
             });
-        } catch (\Throwable $error) {
+        } catch (Throwable $error) {
             Storage::disk('local')->delete($path);
             throw $error;
         }
