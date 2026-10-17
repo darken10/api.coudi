@@ -62,6 +62,23 @@ it('lets only a super admin browse paginated rows from a diagnostic SQLite snaps
             ->assertStatus(422);
         $this->getJson("{$base}/rows?table=sqlite_master")
             ->assertStatus(422);
+
+        // Les anciennes archives pouvaient contenir le fichier .db sans son WAL.
+        unlink($source);
+        $empty = new SQLite3($source);
+        $empty->exec('CREATE TABLE temporary_table (id INTEGER)');
+        $empty->exec('DROP TABLE temporary_table');
+        $empty->close();
+
+        $zip = new ZipArchive;
+        $zip->open($archive, ZipArchive::OVERWRITE);
+        $zip->addFile($source, 'coudi.db');
+        $zip->close();
+        Storage::disk('local')->put('diagnostics/test.zip', file_get_contents($archive));
+
+        $this->getJson("{$base}/tables")
+            ->assertStatus(422)
+            ->assertJsonPath('message', "Cette archive contient une copie SQLite sans tables. Une ancienne version de l'application a pu copier seulement le fichier .db, sans les données du journal WAL. Mettez l'application à jour puis renvoyez un rapport de diagnostic.");
     } finally {
         unlink($source);
         unlink($archive);

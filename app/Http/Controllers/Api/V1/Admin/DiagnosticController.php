@@ -152,13 +152,17 @@ final class DiagnosticController extends ApiController
     {
         try {
             return $this->success($reader->read($bundle, function (SQLite3 $db): array {
-                $result = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+                $result = $db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name");
                 if ($result === false) {
                     throw new RuntimeException('Impossible de lire les tables SQLite.');
                 }
                 $tables = [];
                 while (($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
                     $tables[] = $row['name'];
+                }
+
+                if ($tables === []) {
+                    throw new RuntimeException("Cette archive contient une copie SQLite sans tables. Une ancienne version de l'application a pu copier seulement le fichier .db, sans les données du journal WAL. Mettez l'application à jour puis renvoyez un rapport de diagnostic.");
                 }
 
                 return ['tables' => $tables];
@@ -181,7 +185,7 @@ final class DiagnosticController extends ApiController
 
         try {
             return $this->success($reader->read($bundle, function (SQLite3 $db) use ($table, $page, $perPage): array {
-                $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name AND name NOT LIKE 'sqlite_%'");
+                $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name AND name NOT GLOB 'sqlite_*'");
                 if ($check === false) {
                     throw new RuntimeException('Impossible de lire les tables SQLite.');
                 }
