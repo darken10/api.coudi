@@ -24,6 +24,7 @@ final class GarmentType extends Model implements Replicable
         'company_id',
         'name',
         'category',
+        'catalog_key',
         'complexity',
         'base_price',
         'is_active',

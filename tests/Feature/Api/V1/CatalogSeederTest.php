@@ -99,6 +99,36 @@ describe('Catalogue préconfiguré', function (): void {
             ->and($robe->fresh()->fields()->count())->toBe($before - 1);
     });
 
+    it('ne recrée pas un vêtement renommé lors du backfill', function (): void {
+        $company = catalogCompany();
+        $seeder = app(CatalogSeeder::class);
+
+        $seeder->seed($company);
+
+        // Renommage local : la clé de catalogue reste stable.
+        GarmentType::query()
+            ->where('company_id', $company->getKey())
+            ->where('name', 'Boubou simple')
+            ->update(['name' => 'Boubou traditionnel']);
+
+        $counts = $seeder->seed($company);
+
+        expect(GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Boubou traditionnel')->exists())->toBeTrue()
+            ->and(GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Boubou simple')->exists())->toBeFalse()
+            ->and($counts['garments'])->toBe(0)
+            ->and($counts['fields'])->toBe(0);
+    });
+
+    it('marque les champs associés comme non obligatoires et visibles par défaut', function (): void {
+        $company = catalogCompany();
+        app(CatalogSeeder::class)->seed($company);
+
+        $robe = GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Robe simple')->first();
+
+        expect($robe->fields()->where('is_required', true)->count())->toBe(0)
+            ->and($robe->fields()->where('is_visible', false)->count())->toBe(0);
+    });
+
     it('initialise le catalogue à la création d’un atelier via l’API', function (): void {
         $user = User::factory()->create();
         Sanctum::actingAs($user);

@@ -10,6 +10,7 @@ use App\Models\GarmentType;
 use App\Models\GarmentTypeField;
 use App\Models\MeasurementField;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Initialise le catalogue d'un atelier à partir des données par défaut.
@@ -18,8 +19,10 @@ use Illuminate\Support\Facades\DB;
  * catalogue est copié, jamais partagé. Une modification locale n'a donc aucun
  * effet sur un autre atelier ni sur le catalogue global.
  *
- * L'initialisation est idempotente : on ne crée que les éléments dont le nom
- * n'existe pas déjà dans l'atelier. On n'écrase et on ne supprime jamais rien.
+ * L'identification des éléments passe par une clé stable (`catalog_key`, un
+ * slug du nom d'origine) plutôt que par le nom affiché : un atelier peut ainsi
+ * renommer « Boubou simple » en « Boubou traditionnel » sans que le backfill le
+ * recrée en doublon. On n'écrase et on ne supprime jamais rien.
  */
 final class CatalogSeeder
 {
@@ -30,11 +33,11 @@ final class CatalogSeeder
             $companyId = $company->syncCompanyId();
 
             $beforeFields = MeasurementField::query()->where('company_id', $companyId)->count();
-            $fieldIds = $this->seedMeasurementFields($company, $companyId);
+            $fieldIds = $this->seedMeasurementFields($companyId);
             $fieldsCreated = count($fieldIds) - $beforeFields;
 
             $beforeGarments = GarmentType::query()->where('company_id', $companyId)->count();
-            $associationsCreated = $this->seedGarmentTypes($company, $companyId, $fieldIds);
+            $associationsCreated = $this->seedGarmentTypes($companyId, $fieldIds);
             $garmentsCreated = GarmentType::query()->where('company_id', $companyId)->count() - $beforeGarments;
 
             return [
@@ -46,62 +49,108 @@ final class CatalogSeeder
     }
 
     /**
-     * @return array<string, string>  nom du champ => identifiant
+     * @return array<string, string>  clé de catalogue (slug) => identifiant
      */
-    private function seedMeasurementFields(Company $company, string $companyId): array
+    private function seedMeasurementFields(string $companyId): array
     {
-        $existing = MeasurementField::query()
+        $rows = MeasurementField::query()
             ->where('company_id', $companyId)
             ->withTrashed()
-            ->pluck('id', 'name')
-            ->all();
+            ->get(['id', 'name', 'catalog_key']);
 
-        $ids = $existing;
-        $sort = count($existing);
+        $byKey = [];
+        $byName = [];
+        $ids = [];
+
+        foreach ($rows as $row) {
+            $ids[Str::slug($row->name)] = $row->getKey();
+            if ($row->catalog_key !== null) {
+                $byKey[$row->catalog_key] = $row->getKey();
+            } else {
+                $byName[$row->name] = $row;
+            }
+        }
+
+        $sort = $rows->count();
 
         foreach (DefaultCatalog::measurementFields() as $field) {
-            if (array_key_exists($field['name'], $ids)) {
+            $key = Str::slug($field['name']);
+
+            if (isset($byKey[$key])) {
+                $ids[$key] = $byKey[$key];
+                continue;
+            }
+
+            // Ligne héritée (avant catalog_key) : on l'adopte sans la recréer.
+            if (isset($byName[$field['name']])) {
+                $legacy = $byName[$field['name']];
+                $legacy->forceFill(['catalog_key' => $key])->save();
+                $ids[$key] = $legacy->getKey();
                 continue;
             }
 
             $model = MeasurementField::query()->create([
                 'company_id' => $companyId,
                 'name' => $field['name'],
+                'catalog_key' => $key,
                 'category' => $field['category'],
                 'sort_order' => $sort++,
             ]);
 
-            $ids[$field['name']] = $model->getKey();
+            $ids[$key] = $model->getKey();
         }
 
         return $ids;
     }
 
     /**
-     * @param  array<string, string>  $fieldIds
+     * @param  array<string, string>  $fieldIds  clé => identifiant
      */
-    private function seedGarmentTypes(Company $company, string $companyId, array $fieldIds): int
+    private function seedGarmentTypes(string $companyId, array $fieldIds): int
     {
-        $existingGarments = GarmentType::query()
+        $rows = GarmentType::query()
             ->where('company_id', $companyId)
             ->withTrashed()
-            ->pluck('id', 'name')
-            ->all();
+            ->get(['id', 'name', 'catalog_key']);
 
-        $garmentIds = $existingGarments;
+        $byKey = [];
+        $byName = [];
+        $garmentIds = [];
+
+        foreach ($rows as $row) {
+            $garmentIds[Str::slug($row->name)] = $row->getKey();
+            if ($row->catalog_key !== null) {
+                $byKey[$row->catalog_key] = $row->getKey();
+            } else {
+                $byName[$row->name] = $row;
+            }
+        }
 
         foreach (DefaultCatalog::garmentTypes() as $garment) {
-            if (! array_key_exists($garment['name'], $garmentIds)) {
-                $model = GarmentType::query()->create([
-                    'company_id' => $companyId,
-                    'name' => $garment['name'],
-                    'category' => $garment['category'],
-                    'complexity' => $garment['complexity'],
-                    'is_active' => true,
-                ]);
+            $key = Str::slug($garment['name']);
 
-                $garmentIds[$garment['name']] = $model->getKey();
+            if (isset($byKey[$key])) {
+                $garmentIds[$key] = $byKey[$key];
+                continue;
             }
+
+            if (isset($byName[$garment['name']])) {
+                $legacy = $byName[$garment['name']];
+                $legacy->forceFill(['catalog_key' => $key])->save();
+                $garmentIds[$key] = $legacy->getKey();
+                continue;
+            }
+
+            $model = GarmentType::query()->create([
+                'company_id' => $companyId,
+                'name' => $garment['name'],
+                'catalog_key' => $key,
+                'category' => $garment['category'],
+                'complexity' => $garment['complexity'],
+                'is_active' => true,
+            ]);
+
+            $garmentIds[$key] = $model->getKey();
         }
 
         // Associations existantes : (garment_type_id => list(field_id)).
@@ -118,7 +167,7 @@ final class CatalogSeeder
         $associationsCreated = 0;
 
         foreach (DefaultCatalog::garmentTypes() as $garment) {
-            $garmentId = $garmentIds[$garment['name']] ?? null;
+            $garmentId = $garmentIds[Str::slug($garment['name'])] ?? null;
             if ($garmentId === null) {
                 continue;
             }
@@ -126,7 +175,7 @@ final class CatalogSeeder
             $already = $linksByGarment[$garmentId] ?? [];
 
             foreach (array_values(array_unique($garment['fields'])) as $index => $fieldName) {
-                $fieldId = $fieldIds[$fieldName] ?? null;
+                $fieldId = $fieldIds[Str::slug($fieldName)] ?? null;
                 if ($fieldId === null) {
                     continue;
                 }

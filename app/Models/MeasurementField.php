@@ -21,6 +21,7 @@ final class MeasurementField extends Model implements Replicable
     protected $fillable = [
         'company_id',
         'name',
+        'catalog_key',
         'category',
         'sort_order',
     ];

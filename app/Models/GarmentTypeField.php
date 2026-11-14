@@ -27,6 +27,8 @@ final class GarmentTypeField extends Model implements Replicable
         'garment_type_id',
         'field_id',
         'sort_order',
+        'is_required',
+        'is_visible',
     ];
 
     /** @return BelongsTo<GarmentType, $this> */
@@ -46,6 +48,8 @@ final class GarmentTypeField extends Model implements Replicable
     {
         return [
             'sort_order' => 'integer',
+            'is_required' => 'boolean',
+            'is_visible' => 'boolean',
         ];
     }
 }

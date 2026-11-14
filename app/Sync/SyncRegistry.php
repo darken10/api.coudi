@@ -109,7 +109,7 @@ final class SyncRegistry
                 key: 'garment_type_fields',
                 model: GarmentTypeField::class,
                 strategy: ConflictStrategy::NaturalKeyUpsert,
-                fields: ['garment_type_id', 'field_id', 'sort_order'],
+                fields: ['garment_type_id', 'field_id', 'sort_order', 'is_required', 'is_visible'],
                 parents: ['garment_type_id' => 'garment_types', 'field_id' => 'measurement_fields'],
                 naturalKey: ['garment_type_id', 'field_id'],
                 companyFrom: 'garment_type_id',
