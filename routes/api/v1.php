@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Admin\EmployeeInvitationController as AdminEmplo
 use App\Http\Controllers\Api\V1\Admin\OrderAssignmentController as AdminOrderAssignmentController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\TwoFactorController;
+use App\Http\Controllers\Api\V1\Admin\UsersController;
 use App\Http\Controllers\Api\V1\Admin\WorkshopResourceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CompanyController;
@@ -176,6 +177,12 @@ Route::prefix('admin')->group(function (): void {
             ->name('api.v1.admin.sessions.revoke');
         Route::get('login-history', [AdminAuthController::class, 'loginHistory'])
             ->name('api.v1.admin.login-history');
+
+        Route::prefix('users')->group(function (): void {
+            Route::get('/', [UsersController::class, 'index'])->name('api.v1.admin.users.index');
+            Route::get('{user}', [UsersController::class, 'show'])->name('api.v1.admin.users.show');
+            Route::put('{user}', [UsersController::class, 'update'])->name('api.v1.admin.users.update');
+        });
 
         Route::prefix('two-factor')->group(function (): void {
             Route::post('/', [TwoFactorController::class, 'enroll'])->name('api.v1.admin.2fa.enroll');
