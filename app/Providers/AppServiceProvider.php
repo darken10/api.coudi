@@ -16,7 +16,9 @@ final class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Le registre des codes OTP doit être partagé entre le fournisseur qui
+        // les émet et le test qui les relit.
+        $this->app->singleton(\App\Services\Otp\OtpCodeRegistry::class);
     }
 
     /**

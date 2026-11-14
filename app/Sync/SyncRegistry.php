@@ -17,6 +17,7 @@ use App\Models\MeasurementField;
 use App\Models\MediaAsset;
 use App\Models\ModelGallery;
 use App\Models\Order;
+use App\Models\OrderAssignment;
 use App\Models\OrderMeasurement;
 use App\Models\OrderNote;
 use App\Models\OrderPayment;
@@ -86,7 +87,8 @@ final class SyncRegistry
                 model: CompanySetting::class,
                 strategy: ConflictStrategy::LastWriteWins,
                 fields: ['currency', 'measure_unit', 'default_deadline_days', 'order_prefix',
-                    'label_format', 'label_show_price', 'label_show_tailor', 'label_show_phone'],
+                    'label_format', 'label_show_price', 'label_show_tailor', 'label_show_phone',
+                    'employee_restricted_orders'],
                 naturalKey: ['company_id'],
             ),
             new SyncEntity(
@@ -114,8 +116,8 @@ final class SyncRegistry
                 key: 'employees',
                 model: Employee::class,
                 strategy: ConflictStrategy::LastWriteWins,
-                fields: ['name', 'role', 'phone', 'email', 'salary', 'status', 'hired_at',
-                    'payment_type', 'rate_amount'],
+                fields: ['name', 'role', 'phone', 'whatsapp', 'email', 'photo_uri', 'salary',
+                    'status', 'hired_at', 'payment_type', 'rate_amount'],
             ),
             new SyncEntity(
                 key: 'employee_piece_rates',
@@ -174,6 +176,14 @@ final class SyncRegistry
                     'assigned_employee_id' => 'employees',
                 ],
                 companyFrom: 'client_id',
+            ),
+            new SyncEntity(
+                key: 'order_assignments',
+                model: OrderAssignment::class,
+                strategy: ConflictStrategy::LastWriteWins,
+                fields: ['order_id', 'employee_id', 'status', 'assigned_at', 'removed_at', 'notes'],
+                parents: ['order_id' => 'orders', 'employee_id' => 'employees'],
+                companyFrom: 'order_id',
             ),
             new SyncEntity(
                 key: 'order_notes',

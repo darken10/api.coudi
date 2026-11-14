@@ -24,7 +24,8 @@ describe('Registration', function (): void {
                 'message',
                 'data' => [
                     'user' => ['id', 'name', 'email'],
-                    'token',
+                    'access_token',
+                    'refresh_token',
                 ],
             ])
             ->assertJson([
@@ -78,7 +79,8 @@ describe('Login', function (): void {
                 'message',
                 'data' => [
                     'user' => ['id', 'name', 'email'],
-                    'token',
+                    'access_token',
+                    'refresh_token',
                 ],
             ])
             ->assertJson([

@@ -8,11 +8,13 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolvesTenant;
 use App\Http\Requests\Api\V1\Sync\PullRequest;
 use App\Http\Requests\Api\V1\Sync\PushRequest;
+use App\Models\User;
 use App\Sync\PushOutcome;
 use App\Sync\RevisionSequence;
 use App\Sync\SyncPuller;
 use App\Sync\SyncPusher;
 use App\Sync\SyncRegistry;
+use App\Sync\SyncScope;
 use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,9 +50,25 @@ final class SyncController extends ApiController
         $device = $this->device($request);
         $state = $device->syncStateFor($company);
 
-        $result = $this->puller->pull($company, $request->since(), $request->entities(), $request->limit());
+        /** @var User $user */
+        $user = $request->user();
+        $scope = SyncScope::for($user, $company);
+        $resetRequired = $this->scopeChanged($state->last_scope, $scope);
 
-        $state->fill(['last_pulled_revision' => $result['cursor']]);
+        $result = $this->puller->pull(
+            $company,
+            $resetRequired ? 0 : $request->since(),
+            $request->entities(),
+            $request->limit(),
+            $scope,
+        );
+
+        $result += $this->scopePayload($scope, $resetRequired);
+
+        $state->fill([
+            'last_pulled_revision' => $result['cursor'],
+            'last_scope' => $scope->signature(),
+        ]);
 
         if (! $result['has_more']) {
             $state->fill(['bootstrapped_at' => now()]);
@@ -58,7 +76,7 @@ final class SyncController extends ApiController
 
         $state->save();
 
-        return $this->success($result + ['totals' => $this->totals($company->syncCompanyId())]);
+        return $this->success($result + ['totals' => $this->totals($company->syncCompanyId(), $scope)]);
     }
 
     /**
@@ -70,10 +88,27 @@ final class SyncController extends ApiController
     {
         $company = $this->company($request);
         $device = $this->device($request);
+        $state = $device->syncStateFor($company);
 
-        $result = $this->puller->pull($company, $request->since(), $request->entities(), $request->limit());
+        /** @var User $user */
+        $user = $request->user();
+        $scope = SyncScope::for($user, $company);
+        $resetRequired = $this->scopeChanged($state->last_scope, $scope);
 
-        $device->syncStateFor($company)->update(['last_pulled_revision' => $result['cursor']]);
+        $result = $this->puller->pull(
+            $company,
+            $resetRequired ? 0 : $request->since(),
+            $request->entities(),
+            $request->limit(),
+            $scope,
+        );
+
+        $result += $this->scopePayload($scope, $resetRequired);
+
+        $state->update([
+            'last_pulled_revision' => $result['cursor'],
+            'last_scope' => $scope->signature(),
+        ]);
 
         return $this->success($result);
     }
@@ -115,6 +150,10 @@ final class SyncController extends ApiController
         $state = $this->device($request)->syncStateFor($company);
         $serverRevision = RevisionSequence::current($company->syncCompanyId());
 
+        /** @var User $user */
+        $user = $request->user();
+        $scope = SyncScope::for($user, $company);
+
         return $this->success([
             'company_id' => $company->syncCompanyId(),
             'server_revision' => $serverRevision,
@@ -124,7 +163,7 @@ final class SyncController extends ApiController
             'behind' => max(0, $serverRevision - $state->last_pulled_revision),
             'entities' => SyncRegistry::keys(),
             'can_write' => $this->canWrite($request),
-        ]);
+        ] + $this->scopePayload($scope, $this->scopeChanged($state->last_scope, $scope)));
     }
 
     private function iso(mixed $value): ?string
@@ -139,17 +178,35 @@ final class SyncController extends ApiController
      *
      * @return array<string, int>
      */
-    private function totals(string $companyId): array
+    private function totals(string $companyId, SyncScope $scope): array
     {
         $totals = [];
 
         foreach (SyncRegistry::all() as $key => $entity) {
-            $totals[$key] = $entity->newModel()->newQuery()
-                ->where($entity->companyColumn(), $companyId)
-                ->count();
+            $query = $entity->newModel()->newQuery()
+                ->where($entity->companyColumn(), $companyId);
+
+            $scope->apply($key, $query);
+
+            $totals[$key] = $query->count();
         }
 
         return $totals;
+    }
+
+    private function scopeChanged(?string $previous, SyncScope $scope): bool
+    {
+        return $previous !== null && $previous !== $scope->signature();
+    }
+
+    /** @return array{scope: string, restricted: bool, reset_required: bool} */
+    private function scopePayload(SyncScope $scope, bool $resetRequired): array
+    {
+        return [
+            'scope' => $scope->signature(),
+            'restricted' => $scope->isRestricted(),
+            'reset_required' => $resetRequired,
+        ];
     }
 
     /**

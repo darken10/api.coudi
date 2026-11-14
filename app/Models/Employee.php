@@ -8,6 +8,7 @@ use App\Models\Concerns\BelongsToCompany;
 use App\Models\Concerns\Syncable;
 use App\Models\Contracts\Replicable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -26,12 +27,29 @@ final class Employee extends Model implements Replicable
         'role',
         'phone',
         'email',
+        'whatsapp',
+        'photo_uri',
         'salary',
         'status',
         'hired_at',
         'payment_type',
         'rate_amount',
     ];
+
+    /** Le lien de compte reste une affaire serveur : jamais dans une réponse. */
+    protected $hidden = ['user_id'];
+
+    /** Le compte de connexion lié à cet employé, s'il a été activé. */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /** @return HasMany<OrderAssignment, $this> */
+    public function orderAssignments(): HasMany
+    {
+        return $this->hasMany(OrderAssignment::class);
+    }
 
     /** @return HasMany<EmployeePieceRate, $this> */
     public function pieceRates(): HasMany

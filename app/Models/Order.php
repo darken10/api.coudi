@@ -115,6 +115,21 @@ final class Order extends Model implements Replicable
         return $this->hasMany(OrderMeasurement::class);
     }
 
+    /** @return HasMany<OrderAssignment, $this> */
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(OrderAssignment::class);
+    }
+
+    /** Employés actuellement affectés, dans l'ordre d'affectation. */
+    public function activeAssigneeIds(): array
+    {
+        return $this->assignments()
+            ->where('status', OrderAssignment::STATUS_ACTIVE)
+            ->pluck('employee_id')
+            ->all();
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {

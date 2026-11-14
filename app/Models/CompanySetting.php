@@ -32,6 +32,7 @@ final class CompanySetting extends Model implements Replicable
         'label_show_price',
         'label_show_tailor',
         'label_show_phone',
+        'employee_restricted_orders',
     ];
 
     /** @return array<string, string> */
@@ -42,6 +43,7 @@ final class CompanySetting extends Model implements Replicable
             'label_show_price' => 'boolean',
             'label_show_tailor' => 'boolean',
             'label_show_phone' => 'boolean',
+            'employee_restricted_orders' => 'boolean',
         ];
     }
 }

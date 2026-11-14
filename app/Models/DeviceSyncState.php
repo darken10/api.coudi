@@ -22,6 +22,7 @@ final class DeviceSyncState extends Model
         'device_id',
         'company_id',
         'last_pulled_revision',
+        'last_scope',
         'bootstrapped_at',
         'last_pushed_at',
     ];

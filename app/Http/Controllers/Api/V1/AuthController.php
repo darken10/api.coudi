@@ -13,18 +13,21 @@ use App\Http\Requests\Api\V1\ResendVerificationRequest;
 use App\Http\Requests\Api\V1\ResetPasswordRequest;
 use App\Http\Requests\Api\V1\VerifyEmailRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Company;
 use App\Models\RefreshToken;
 use App\Models\User;
+use App\Services\Auth\TokenIssuer;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 
 final class AuthController extends ApiController
 {
+    public function __construct(private readonly TokenIssuer $tokens) {}
+
     public function register(RegisterRequest $request): JsonResponse
     {
         $user = User::query()->create([
@@ -36,20 +39,30 @@ final class AuthController extends ApiController
         $user->sendEmailVerificationNotification();
 
         return $this->created(
-            $this->buildTokenPayload($user),
+            $this->tokenPayload($user),
             'User registered successfully. Please check your email to verify your account.'
         );
     }
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = User::query()->where('email', $request->email)->first();
+        $identifier = trim((string) ($request->login ?? $request->email ?? $request->phone));
+
+        $user = $this->findByIdentifier($identifier);
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             return $this->unauthorized('Invalid credentials');
         }
 
-        return $this->success($this->buildTokenPayload($user), 'Login successful');
+        if (! $user->isActiveAccount()) {
+            return $this->forbidden(
+                $user->status === User::STATUS_PENDING_ACTIVATION
+                    ? 'Account not activated yet. Use your invitation link.'
+                    : 'Account suspended.'
+            );
+        }
+
+        return $this->success($this->tokenPayload($user), 'Login successful');
     }
 
     public function refresh(RefreshTokenRequest $request): JsonResponse
@@ -65,15 +78,13 @@ final class AuthController extends ApiController
         // Rotate: revoke the old token, issue a fresh pair
         $refreshToken->revoke();
 
-        $expiresAt = $this->accessTokenExpiresAt();
-        $accessToken = $user->createToken('auth-token', ['*'], $expiresAt)->plainTextToken;
-        [$newRefresh] = RefreshToken::issue($user->id);
+        $payload = $this->tokens->issue($user);
 
         return $this->success([
-            'access_token' => $accessToken,
-            'refresh_token' => $newRefresh,
+            'access_token' => $payload['access_token'],
+            'refresh_token' => $payload['refresh_token'],
             'token_type' => 'Bearer',
-            'expires_at' => $expiresAt?->toIso8601String(),
+            'expires_at' => $payload['expires_at'],
         ], 'Token refreshed');
     }
 
@@ -93,7 +104,46 @@ final class AuthController extends ApiController
 
     public function me(Request $request): JsonResponse
     {
-        return $this->success(new UserResource($request->user()));
+        /** @var User $user */
+        $user = $request->user();
+
+        $data = (new UserResource($user))->resolve();
+
+        $data['memberships'] = $user->companies()->get()->map(static fn (Company $company): array => [
+            'company_id' => $company->getKey(),
+            'name' => $company->name,
+            'role' => $company->getRelationValue('pivot')?->getAttribute('role'),
+        ])->values()->all();
+
+        $companyId = $request->header('X-Company-Id');
+
+        if (is_string($companyId) && $companyId !== '') {
+            $company = $user->companies()->find($companyId);
+
+            if ($company !== null) {
+                $employee = $user->employeeIn($company);
+
+                $data['current_company'] = [
+                    'id' => $company->getKey(),
+                    'name' => $company->name,
+                    'role' => $company->getRelationValue('pivot')?->getAttribute('role'),
+                    'employee_restricted_orders' => (bool) $company->settings?->employee_restricted_orders,
+                ];
+
+                $data['employee'] = $employee === null ? null : [
+                    'id' => $employee->getKey(),
+                    'company_id' => $employee->company_id,
+                    'name' => $employee->name,
+                    'role' => $employee->role,
+                    'phone' => $employee->phone,
+                    'whatsapp' => $employee->whatsapp,
+                    'email' => $employee->email,
+                    'photo_uri' => $employee->photo_uri,
+                ];
+            }
+        }
+
+        return $this->success($data);
     }
 
     public function verifyEmail(VerifyEmailRequest $request): JsonResponse
@@ -170,35 +220,35 @@ final class AuthController extends ApiController
     /**
      * @return array<string, mixed>
      */
-    private function buildTokenPayload(User $user): array
+    private function tokenPayload(User $user): array
     {
-        $expiresAt = $this->accessTokenExpiresAt();
-        $accessToken = $user->createToken('auth-token', ['*'], $expiresAt)->plainTextToken;
-        [$refresh] = RefreshToken::issue($user->id);
+        $payload = $this->tokens->issue($user);
 
-        return [
-            'user' => new UserResource($user),
-            'access_token' => $accessToken,
-            'refresh_token' => $refresh,
-            'token_type' => 'Bearer',
-            'expires_at' => $expiresAt?->toIso8601String(),
-        ];
+        $payload['user'] = new UserResource($user);
+
+        return $payload;
     }
 
     /**
-     * Échéance du jeton d'accès, ou null lorsqu'il n'expire pas.
-     *
-     * Null, et non une date lointaine : `personal_access_tokens.expires_at` est
-     * une colonne TIMESTAMP, que MySQL borne à 2038-01-19 — l'entier signé de
-     * 32 bits. Un `addYears(100)` y était rejeté (« Incorrect datetime value »)
-     * et faisait échouer toute connexion, alors que SQLite, sans type date,
-     * l'acceptait en développement. `createToken` accepte bien null et traite
-     * alors le jeton comme sans échéance, ce que décrit déjà config/tokens.php.
+     * Retrouve un compte par email, téléphone ou WhatsApp. Le téléphone est
+     * normalisé comme lors de l'invitation, pour que « +223 70 00 » et
+     * « +2237000 » désignent le même compte.
      */
-    private function accessTokenExpiresAt(): ?Carbon
+    private function findByIdentifier(string $identifier): ?User
     {
-        $days = config('tokens.access_expiry_days');
+        if ($identifier === '') {
+            return null;
+        }
 
-        return $days !== null ? now()->addDays((int) $days) : null;
+        if (str_contains($identifier, '@')) {
+            return User::query()->where('email', mb_strtolower($identifier))->first();
+        }
+
+        $phone = (string) preg_replace('/[^0-9+]/', '', $identifier);
+
+        return User::query()
+            ->where('phone', $phone)
+            ->orWhere('whatsapp', $phone)
+            ->first();
     }
 }

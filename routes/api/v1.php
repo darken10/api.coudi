@@ -5,15 +5,20 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\V1\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Api\V1\Admin\DiagnosticController as AdminDiagnosticController;
+use App\Http\Controllers\Api\V1\Admin\EmployeeInvitationController as AdminEmployeeInvitationController;
+use App\Http\Controllers\Api\V1\Admin\OrderAssignmentController as AdminOrderAssignmentController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\TwoFactorController;
 use App\Http\Controllers\Api\V1\Admin\WorkshopResourceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CompanyController;
 use App\Http\Controllers\Api\V1\DiagnosticController;
+use App\Http\Controllers\Api\V1\OtpController;
 use App\Http\Controllers\Api\V1\SyncController;
 use App\Http\Controllers\Api\V1\Workshop\ClientController;
 use App\Http\Controllers\Api\V1\Workshop\EmployeeController;
+use App\Http\Controllers\Api\V1\Workshop\EmployeeInvitationController;
+use App\Http\Controllers\Api\V1\Workshop\OrderAssignmentController;
 use App\Http\Controllers\Api\V1\Workshop\GarmentTypeController;
 use App\Http\Controllers\Api\V1\Workshop\MeasurementFieldController;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +37,20 @@ Route::middleware('throttle:auth')->group(function (): void {
     Route::post('register', [AuthController::class, 'register'])->name('api.v1.register');
     Route::post('login', [AuthController::class, 'login'])->name('api.v1.login');
     Route::post('auth/refresh', [AuthController::class, 'refresh'])->name('api.v1.auth.refresh');
+
+    // Activation d'un compte employé : le token est le seul secret, il est
+    // donc limité en débit comme une authentification.
+    Route::get('employee-invitations/{token}', [EmployeeInvitationController::class, 'preview'])
+        ->name('api.v1.employee-invitations.preview');
+    Route::post('employee-invitations/{token}/accept', [EmployeeInvitationController::class, 'accept'])
+        ->name('api.v1.employee-invitations.accept');
+});
+
+// Réinitialisation par OTP (public, débit fortement limité)
+Route::middleware('throttle:6,1')->group(function (): void {
+    Route::post('auth/otp/request', [OtpController::class, 'request'])->name('api.v1.otp.request');
+    Route::post('auth/otp/verify', [OtpController::class, 'verify'])->name('api.v1.otp.verify');
+    Route::post('auth/password/reset', [OtpController::class, 'reset'])->name('api.v1.otp.reset');
 });
 
 // Protected routes with authenticated rate limiter (120/min)
@@ -89,6 +108,24 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
     // CRUD REST du référentiel — console web. Le mobile n'y touche pas : il ne
     // parle qu'aux quatre points d'entrée de synchronisation ci-dessus.
     Route::middleware('company')->group(function (): void {
+        Route::prefix('employees/{employee}/invitations')->group(function (): void {
+            Route::get('/', [EmployeeInvitationController::class, 'index'])
+                ->name('api.v1.employee-invitations.index');
+            Route::post('/', [EmployeeInvitationController::class, 'store'])
+                ->name('api.v1.employee-invitations.store');
+            Route::delete('{invitation}', [EmployeeInvitationController::class, 'destroy'])
+                ->name('api.v1.employee-invitations.destroy');
+        });
+
+        Route::prefix('orders/{order}/assignments')->group(function (): void {
+            Route::get('/', [OrderAssignmentController::class, 'index'])
+                ->name('api.v1.order-assignments.index');
+            Route::post('/', [OrderAssignmentController::class, 'store'])
+                ->name('api.v1.order-assignments.store');
+            Route::delete('{employee}', [OrderAssignmentController::class, 'destroy'])
+                ->name('api.v1.order-assignments.destroy');
+        });
+
         foreach ([
             'clients' => ClientController::class,
             'employees' => EmployeeController::class,
@@ -161,6 +198,26 @@ Route::prefix('admin')->group(function (): void {
             // d'un atelier depuis le web. Les écritures restent synchronisables.
             Route::get('{company}/workspace', [WorkshopResourceController::class, 'overview'])
                 ->name('api.v1.admin.companies.workspace');
+
+            // Comptes employés : invitation, suivi, révocation.
+            Route::prefix('{company}/employees/{employee}/invitations')->group(function (): void {
+                Route::get('/', [AdminEmployeeInvitationController::class, 'index'])
+                    ->name('api.v1.admin.employee-invitations.index');
+                Route::post('/', [AdminEmployeeInvitationController::class, 'store'])
+                    ->name('api.v1.admin.employee-invitations.store');
+                Route::delete('{invitation}', [AdminEmployeeInvitationController::class, 'destroy'])
+                    ->name('api.v1.admin.employee-invitations.destroy');
+            });
+
+            // Affectations multiples : source de vérité de la visibilité mobile.
+            Route::prefix('{company}/orders/{order}/assignments')->group(function (): void {
+                Route::get('/', [AdminOrderAssignmentController::class, 'index'])
+                    ->name('api.v1.admin.order-assignments.index');
+                Route::post('/', [AdminOrderAssignmentController::class, 'store'])
+                    ->name('api.v1.admin.order-assignments.store');
+                Route::delete('{employee}', [AdminOrderAssignmentController::class, 'destroy'])
+                    ->name('api.v1.admin.order-assignments.destroy');
+            });
             Route::prefix('{company}/resources/{entity}')->group(function (): void {
                 Route::get('/', [WorkshopResourceController::class, 'index'])
                     ->name('api.v1.admin.workshop-resources.index');

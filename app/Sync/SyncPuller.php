@@ -32,8 +32,14 @@ final class SyncPuller
      *     counts: array<string, int>
      * }
      */
-    public function pull(Company $company, int $since, array $entities = [], int $limit = self::DEFAULT_LIMIT): array
-    {
+    public function pull(
+        Company $company,
+        int $since,
+        array $entities = [],
+        int $limit = self::DEFAULT_LIMIT,
+        ?SyncScope $scope = null,
+    ): array {
+        $scope ??= new SyncScope($company, null, false);
         $limit = max(1, min($limit, self::MAX_LIMIT));
         $companyId = $company->syncCompanyId();
 
@@ -57,13 +63,17 @@ final class SyncPuller
         foreach ($keys as $key) {
             $entity = SyncRegistry::get($key);
 
-            $found = $entity->query()
+            $query = $entity->query()
                 ->where($entity->companyColumn(), $companyId)
                 ->where('revision', '>', $since)
                 ->where('revision', '<=', $ceiling)
                 ->orderBy('revision')
-                ->limit($limit + 1)
-                ->get();
+                ->limit($limit + 1);
+
+            // Le cloisonnement employé s'ajoute au cloisonnement atelier.
+            $scope->apply($key, $query);
+
+            $found = $query->get();
 
             if ($found->count() > $limit) {
                 $found = $found->take($limit);

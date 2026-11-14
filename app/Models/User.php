@@ -33,7 +33,10 @@ use Laravel\Sanctum\HasApiTokens;
 #[Fillable([
     'name',
     'email',
+    'phone',
+    'whatsapp',
     'password',
+    'status',
 ])]
 #[Hidden([
     'password',
@@ -55,9 +58,43 @@ final class User extends Authenticatable implements MustVerifyEmail
     /** Seul rôle admis par la console d'administration. */
     public const ROLE_SUPER_ADMIN = 'super_admin';
 
+    public const STATUS_ACTIVE = 'active';
+
+    /** Compte créé par un patron, pas encore activé par l'employé. */
+    public const STATUS_PENDING_ACTIVATION = 'pending_activation';
+
+    public const STATUS_SUSPENDED = 'suspended';
+
     public function isSuperAdmin(): bool
     {
         return $this->role === self::ROLE_SUPER_ADMIN;
+    }
+
+    /** Un compte en attente ne peut pas ouvrir de session mobile. */
+    public function isActiveAccount(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
+
+    /**
+     * Les fiches employé incarnées par ce compte.
+     *
+     * Une même personne peut travailler dans plusieurs ateliers : /me résout
+     * la fiche correspondant à l'atelier courant, jamais une autre.
+     *
+     * @return HasMany<Employee, $this>
+     */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
+
+    /** Fiche employé du compte dans un atelier donné. */
+    public function employeeIn(Company|string $company): ?Employee
+    {
+        $companyId = $company instanceof Company ? $company->syncCompanyId() : $company;
+
+        return $this->employees()->where('company_id', $companyId)->first();
     }
 
     /** Le double facteur n'est actif qu'une fois le premier code validé. */
@@ -86,6 +123,12 @@ final class User extends Authenticatable implements MustVerifyEmail
     public function devices(): HasMany
     {
         return $this->hasMany(Device::class);
+    }
+
+    /** @return HasMany<RefreshToken, $this> */
+    public function refreshTokens(): HasMany
+    {
+        return $this->hasMany(RefreshToken::class);
     }
 
     /** Rôle tenu dans un atelier, ou `null` si le compte n'y a pas accès. */
