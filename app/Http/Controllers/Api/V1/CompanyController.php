@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Models\Company;
 use App\Models\CompanySetting;
 use App\Models\User;
+use App\Services\Catalog\CatalogSeeder;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -98,6 +99,10 @@ final class CompanyController extends ApiController
             // Les réglages d'atelier existent dès la création : sans ligne, le
             // premier chargement livrerait une application sans devise.
             CompanySetting::query()->create(['company_id' => $company->getKey()]);
+
+            // Catalogue de départ : l'atelier est immédiatement utilisable,
+            // avec ses types de vêtements, champs de mesure et associations.
+            app(CatalogSeeder::class)->seed($company);
 
             return $company;
         });

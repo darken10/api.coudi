@@ -103,7 +103,7 @@ final class SyncRegistry
                 key: 'garment_types',
                 model: GarmentType::class,
                 strategy: ConflictStrategy::LastWriteWins,
-                fields: ['name', 'complexity', 'base_price', 'is_active'],
+                fields: ['name', 'category', 'complexity', 'base_price', 'is_active'],
             ),
             new SyncEntity(
                 key: 'garment_type_fields',

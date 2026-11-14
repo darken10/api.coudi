@@ -23,6 +23,7 @@ final class GarmentType extends Model implements Replicable
     protected $fillable = [
         'company_id',
         'name',
+        'category',
         'complexity',
         'base_price',
         'is_active',
