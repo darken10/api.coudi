@@ -52,6 +52,7 @@ final class CatalogSeeder
     {
         $existing = MeasurementField::query()
             ->where('company_id', $companyId)
+            ->withTrashed()
             ->pluck('id', 'name')
             ->all();
 
@@ -83,6 +84,7 @@ final class CatalogSeeder
     {
         $existingGarments = GarmentType::query()
             ->where('company_id', $companyId)
+            ->withTrashed()
             ->pluck('id', 'name')
             ->all();
 
@@ -102,9 +104,12 @@ final class CatalogSeeder
             }
         }
 
-        // Associations existantes : (garment_type_id => set(field_id)).
-        $existingLinks = GarmentTypeField::query()
+        // Associations existantes : (garment_type_id => list(field_id)).
+        // `withTrashed` : une association supprimée par l'utilisateur doit
+        // rester absente, sans être recréée (ce qui violerait l'unicité).
+        $linksByGarment = GarmentTypeField::query()
             ->where('company_id', $companyId)
+            ->withTrashed()
             ->get(['garment_type_id', 'field_id'])
             ->groupBy('garment_type_id')
             ->map(fn ($rows) => $rows->pluck('field_id')->all())
@@ -118,7 +123,7 @@ final class CatalogSeeder
                 continue;
             }
 
-            $already = $existingLinks[$garmentId] ?? [];
+            $already = $linksByGarment[$garmentId] ?? [];
 
             foreach (array_values(array_unique($garment['fields'])) as $index => $fieldName) {
                 $fieldId = $fieldIds[$fieldName] ?? null;
@@ -137,7 +142,7 @@ final class CatalogSeeder
                     'sort_order' => $index,
                 ]);
 
-                $already[] = $fieldId;
+                $linksByGarment[$garmentId][] = $fieldId;
                 $associationsCreated++;
             }
         }

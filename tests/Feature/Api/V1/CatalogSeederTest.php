@@ -80,16 +80,23 @@ describe('Catalogue préconfiguré', function (): void {
 
         $seeder->seed($company);
 
-        // Personnalisation : un vêtement renommé + un champ retiré.
-        GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Chemise simple')->update(['name' => 'Chemise coupe locale']);
+        // Personnalisation : un vêtement ajouté + une association retirée.
+        GarmentType::query()->create([
+            'company_id' => $company->getKey(),
+            'name' => 'Robe sur mesure',
+            'category' => 'Femme',
+            'complexity' => 'simple',
+            'is_active' => true,
+        ]);
+
         $robe = GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Robe simple')->first();
+        $before = $robe->fields()->count();
         $robe->fields()->first()?->delete();
 
-        $counts = $seeder->seed($company);
+        $seeder->seed($company);
 
-        expect(GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Chemise coupe locale')->exists())->toBeTrue()
-            ->and($counts['garments'])->toBe(0)
-            ->and($counts['fields'])->toBe(0);
+        expect(GarmentType::query()->where('company_id', $company->getKey())->where('name', 'Robe sur mesure')->exists())->toBeTrue()
+            ->and($robe->fresh()->fields()->count())->toBe($before - 1);
     });
 
     it('initialise le catalogue à la création d’un atelier via l’API', function (): void {

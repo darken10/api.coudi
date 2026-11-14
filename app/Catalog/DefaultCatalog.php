@@ -168,7 +168,6 @@ final class DefaultCatalog
 
             // ── Autres catégories ───────────────────────────────────────────
             ['name' => 'Uniforme professionnel',   'category' => 'Autre', 'complexity' => 'medium',  'fields' => $ensemble],
-            ['name' => 'Uniforme scolaire',        'category' => 'Autre', 'complexity' => 'simple',  'fields' => $ensemble],
             ['name' => 'Tenue religieuse',         'category' => 'Autre', 'complexity' => 'medium',  'fields' => $boubou],
             ['name' => 'Tenue de groupe',          'category' => 'Autre', 'complexity' => 'medium',  'fields' => $ensemble],
             ['name' => 'Création personnalisée',   'category' => 'Autre', 'complexity' => 'simple',  'fields' => []],
