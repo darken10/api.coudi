@@ -29,6 +29,9 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table): void {
             // Un employé peut n'avoir qu'un téléphone : l'email devient
             // facultatif, et le téléphone devient un identifiant de connexion.
+            // `change()` est idempotent : re-modifier en nullable est sans effet.
+            $table->string('email')->nullable()->change();
+
             if (! Schema::hasColumn('users', 'phone')) {
                 $table->string('phone', 40)->nullable()->unique()->after('email');
             }

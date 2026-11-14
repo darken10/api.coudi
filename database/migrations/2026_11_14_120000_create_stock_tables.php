@@ -18,31 +18,35 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('stock_items', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
-            $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
-            $table->string('name');
-            $table->string('reference')->nullable();
-            $table->string('category')->nullable();
-            $table->string('unit')->default('piece');
-            $table->decimal('low_stock_threshold', 12, 2)->nullable();
-            $table->text('notes')->nullable();
-            $table->boolean('is_active')->default(true);
-            $this->syncColumns($table);
-        });
+        if (! Schema::hasTable('stock_items')) {
+            Schema::create('stock_items', function (Blueprint $table): void {
+                $table->uuid('id')->primary();
+                $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
+                $table->string('name');
+                $table->string('reference')->nullable();
+                $table->string('category')->nullable();
+                $table->string('unit')->default('piece');
+                $table->decimal('low_stock_threshold', 12, 2)->nullable();
+                $table->text('notes')->nullable();
+                $table->boolean('is_active')->default(true);
+                $this->syncColumns($table);
+            });
+        }
 
-        Schema::create('stock_movements', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
-            $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
-            $table->foreignUuid('stock_item_id')->constrained()->cascadeOnDelete();
-            $table->string('type', 10); // in | out
-            $table->decimal('quantity', 12, 2)->default(0);
-            $table->text('note')->nullable();
-            $table->timestamp('moved_at')->nullable();
-            $this->syncColumns($table);
+        if (! Schema::hasTable('stock_movements')) {
+            Schema::create('stock_movements', function (Blueprint $table): void {
+                $table->uuid('id')->primary();
+                $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
+                $table->foreignUuid('stock_item_id')->constrained()->cascadeOnDelete();
+                $table->string('type', 10); // in | out
+                $table->decimal('quantity', 12, 2)->default(0);
+                $table->text('note')->nullable();
+                $table->timestamp('moved_at')->nullable();
+                $this->syncColumns($table);
 
-            $table->index(['stock_item_id', 'moved_at']);
-        });
+                $table->index(['stock_item_id', 'moved_at']);
+            });
+        }
     }
 
     public function down(): void

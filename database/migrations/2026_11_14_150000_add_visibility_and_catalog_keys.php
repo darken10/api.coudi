@@ -22,16 +22,24 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('garment_type_fields', function (Blueprint $table): void {
-            $table->boolean('is_required')->default(false)->after('sort_order');
-            $table->boolean('is_visible')->default(true)->after('is_required');
+            if (! Schema::hasColumn('garment_type_fields', 'is_required')) {
+                $table->boolean('is_required')->default(false)->after('sort_order');
+            }
+            if (! Schema::hasColumn('garment_type_fields', 'is_visible')) {
+                $table->boolean('is_visible')->default(true)->after('is_required');
+            }
         });
 
         Schema::table('garment_types', function (Blueprint $table): void {
-            $table->string('catalog_key', 100)->nullable()->after('category')->index();
+            if (! Schema::hasColumn('garment_types', 'catalog_key')) {
+                $table->string('catalog_key', 100)->nullable()->after('category')->index();
+            }
         });
 
         Schema::table('measurement_fields', function (Blueprint $table): void {
-            $table->string('catalog_key', 100)->nullable()->after('name')->index();
+            if (! Schema::hasColumn('measurement_fields', 'catalog_key')) {
+                $table->string('catalog_key', 100)->nullable()->after('name')->index();
+            }
         });
     }
 

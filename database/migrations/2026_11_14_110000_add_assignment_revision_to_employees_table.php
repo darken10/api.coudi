@@ -20,7 +20,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('employees', function (Blueprint $table): void {
-            $table->unsignedInteger('assignment_revision')->default(0)->after('user_id');
+            if (! Schema::hasColumn('employees', 'assignment_revision')) {
+                $table->unsignedInteger('assignment_revision')->default(0)->after('user_id');
+            }
         });
     }
 

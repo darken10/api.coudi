@@ -17,7 +17,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('garment_types', function (Blueprint $table): void {
-            $table->string('category', 40)->nullable()->after('name');
+            if (! Schema::hasColumn('garment_types', 'category')) {
+                $table->string('category', 40)->nullable()->after('name');
+            }
         });
     }
 
