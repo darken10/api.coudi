@@ -4,7 +4,7 @@ deploy:
 
 install: vendor/autoload.php .env public/storage
 	php artisan optimize
-	php artisan migrate
+	php artisan migrate --force
 
 
 .env:
