@@ -111,6 +111,12 @@ final class Company extends Model implements Replicable
         return $this->hasOne(DiagnosticSetting::class);
     }
 
+    /** @return HasOne<Subscription, $this> */
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class);
+    }
+
     protected static function booted(): void
     {
         /*

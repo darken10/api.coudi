@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AuthController as AdminAuthController;
+use App\Http\Controllers\Api\V1\Admin\AuditController;
+use App\Http\Controllers\Api\V1\Admin\BillingController;
 use App\Http\Controllers\Api\V1\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Api\V1\Admin\DiagnosticController as AdminDiagnosticController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeInvitationController as AdminEmployeeInvitationController;
@@ -184,6 +186,21 @@ Route::prefix('admin')->group(function (): void {
             Route::put('{user}', [UsersController::class, 'update'])->name('api.v1.admin.users.update');
         });
 
+        Route::prefix('subscriptions')->group(function (): void {
+            Route::get('/', [BillingController::class, 'index'])->name('api.v1.admin.subscriptions.index');
+            Route::get('{subscription}', [BillingController::class, 'show'])->name('api.v1.admin.subscriptions.show');
+            Route::put('{subscription}', [BillingController::class, 'update'])->name('api.v1.admin.subscriptions.update');
+            Route::post('{subscription}/invoices', [BillingController::class, 'storeInvoice'])
+                ->name('api.v1.admin.subscriptions.invoices.store');
+            Route::put('{subscription}/invoices/{invoice}', [BillingController::class, 'updateInvoice'])
+                ->name('api.v1.admin.subscriptions.invoices.update');
+        });
+
+        Route::prefix('audit')->group(function (): void {
+            Route::get('logins', [AuditController::class, 'logins'])->name('api.v1.admin.audit.logins');
+            Route::get('actions', [AuditController::class, 'actions'])->name('api.v1.admin.audit.actions');
+        });
+
         Route::prefix('two-factor')->group(function (): void {
             Route::post('/', [TwoFactorController::class, 'enroll'])->name('api.v1.admin.2fa.enroll');
             Route::post('confirm', [TwoFactorController::class, 'confirm'])->name('api.v1.admin.2fa.confirm');
@@ -200,6 +217,8 @@ Route::prefix('admin')->group(function (): void {
                 ->name('api.v1.admin.companies.diagnostics.update');
             Route::delete('{company}/diagnostic-settings', [AdminCompanyController::class, 'resetDiagnosticSettings'])
                 ->name('api.v1.admin.companies.diagnostics.reset');
+            Route::put('{company}/restriction', [AdminCompanyController::class, 'updateRestriction'])
+                ->name('api.v1.admin.companies.restriction.update');
 
             // Le super administrateur peut corriger tout le dossier métier
             // d'un atelier depuis le web. Les écritures restent synchronisables.

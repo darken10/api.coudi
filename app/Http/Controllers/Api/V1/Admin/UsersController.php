@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Models\AdminAction;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -103,6 +104,10 @@ final class UsersController extends ApiController
         }
 
         $user->update(['status' => $data['status']]);
+
+        /** @var User|null $admin */
+        $admin = $request->user();
+        AdminAction::record('user.status_updated', $admin, null, $user, ['status' => $data['status']]);
 
         return $this->success($this->row($user), 'État du compte mis à jour.');
     }

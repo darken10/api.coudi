@@ -7,8 +7,11 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\V1\Admin\UpdateCompanyRequest;
 use App\Http\Requests\Api\V1\Diagnostic\UpdateDiagnosticSettingsRequest;
+use App\Models\AdminAction;
 use App\Models\Company;
 use App\Models\DiagnosticSetting;
+use App\Models\EmployeeInvitation;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -54,15 +57,51 @@ final class CompanyController extends ApiController
     {
         $company->loadCount('clients')->load('diagnosticSetting');
 
-        return $this->success($this->row($company));
+        return $this->success($this->row($company) + [
+            'members' => $this->members($company),
+            'pending_invitations' => $this->pendingInvitations($company),
+            'employee_restricted_orders' => (bool) ($company->settings?->employee_restricted_orders ?? false),
+        ]);
     }
 
     public function update(UpdateCompanyRequest $request, Company $company): JsonResponse
     {
         $company->update($request->validated());
+
+        /** @var User|null $admin */
+        $admin = $request->user();
+        AdminAction::record('company.updated', $admin, $company, null, $request->validated());
+
         $company->refresh()->loadCount('clients')->load('diagnosticSetting');
 
         return $this->success($this->row($company), 'Atelier mis à jour.');
+    }
+
+    /**
+     * Bascule de la restriction de visibilité des commandes par employé.
+     *
+     * Ce réglage vit dans `company_settings` (répliqué) : le modifier ici le
+     * fera descendre sur les téléphones au prochain rattrapage.
+     */
+    public function updateRestriction(Request $request, Company $company): JsonResponse
+    {
+        $data = $request->validate([
+            'employee_restricted_orders' => ['required', 'boolean'],
+        ]);
+
+        $company->settings()->updateOrCreate(
+            ['company_id' => $company->getKey()],
+            ['employee_restricted_orders' => $data['employee_restricted_orders']],
+        );
+
+        /** @var User|null $admin */
+        $admin = $request->user();
+        AdminAction::record('company.restriction_updated', $admin, $company, null, $data);
+
+        return $this->success(
+            ['employee_restricted_orders' => (bool) $data['employee_restricted_orders']],
+            'Restriction de visibilité mise à jour.'
+        );
     }
 
     /** Réglages de journalisation propres à cet atelier. */
@@ -126,5 +165,43 @@ final class CompanyController extends ApiController
             'log_api_calls' => (bool) $setting->log_api_calls,
             'log_api_bodies' => (bool) $setting->log_api_bodies,
         ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function members(Company $company): array
+    {
+        return $company->members()->get()->map(static function (User $user): array {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $user->status,
+                'role' => $user->getRelationValue('pivot')?->getAttribute('role'),
+            ];
+        })->values()->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function pendingInvitations(Company $company): array
+    {
+        return EmployeeInvitation::query()
+            ->with('employee:id,name')
+            ->where('company_id', $company->getKey())
+            ->whereNull('accepted_at')
+            ->whereNull('revoked_at')
+            ->where('expires_at', '>', now())
+            ->latest('created_at')
+            ->get()
+            ->map(static function (EmployeeInvitation $invitation): array {
+                return [
+                    'id' => $invitation->getKey(),
+                    'employee_name' => $invitation->employee?->name,
+                    'email' => $invitation->email,
+                    'phone' => $invitation->phone,
+                    'expires_at' => $invitation->expires_at?->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->all();
     }
 }

@@ -13,6 +13,7 @@ use App\Models\DiagnosticCommandAck;
 use App\Models\DiagnosticSetting;
 use App\Models\LoginAudit;
 use App\Models\Order;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -33,7 +34,16 @@ final class OverviewController extends ApiController
                 'suspended' => Company::query()->where('status', Company::STATUS_SUSPENDED)->count(),
                 'overridden' => DiagnosticSetting::query()->whereNotNull('company_id')->count(),
             ],
+            'users' => [
+                'total' => User::query()->count(),
+                'active' => User::query()->where('status', User::STATUS_ACTIVE)->count(),
+                'pending_activation' => User::query()->where('status', User::STATUS_PENDING_ACTIVATION)->count(),
+                'suspended' => User::query()->where('status', User::STATUS_SUSPENDED)->count(),
+            ],
             'clients_total' => Client::query()->count(),
+            'orders_last_7_days' => Order::query()->where('created_at', '>=', now()->subDays(7))->count(),
+            'recent_users' => $this->recentUsers(),
+            'recent_companies' => $this->recentCompanies(),
             'bundles' => [
                 'total' => DiagnosticBundle::query()->count(),
                 'last_7_days' => DiagnosticBundle::query()->where('sent_at', '>=', now()->subDays(7))->count(),
@@ -62,6 +72,40 @@ final class OverviewController extends ApiController
                     ->count(),
             ],
         ]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function recentUsers(): array
+    {
+        return User::query()
+            ->latest('created_at')
+            ->limit(5)
+            ->get()
+            ->map(static fn (User $user): array => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $user->status,
+                'is_super_admin' => $user->isSuperAdmin(),
+                'created_at' => $user->created_at?->toIso8601String(),
+            ])
+            ->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function recentCompanies(): array
+    {
+        return Company::query()
+            ->latest('created_at')
+            ->limit(5)
+            ->get()
+            ->map(static fn (Company $company): array => [
+                'id' => $company->getKey(),
+                'name' => $company->name,
+                'status' => $company->status,
+                'created_at' => $company->created_at?->toIso8601String(),
+            ])
+            ->all();
     }
 
     /**
