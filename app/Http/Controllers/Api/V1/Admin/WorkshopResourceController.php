@@ -239,6 +239,7 @@ final class WorkshopResourceController extends ApiController
     {
         return match ($entity) {
             'clients', 'employees', 'garment_types', 'measurement_fields', 'model_galleries' => ['name'],
+            'stock_items' => ['name', 'reference'],
             'orders' => ['order_code', 'description', 'status'],
             'design_models' => ['name', 'reference', 'tags'],
             'media_assets' => ['file_name', 'caption'],

@@ -22,6 +22,8 @@ use App\Models\OrderMeasurement;
 use App\Models\OrderNote;
 use App\Models\OrderPayment;
 use App\Models\SalaryPayment;
+use App\Models\StockItem;
+use App\Models\StockMovement;
 use App\Models\WorkLog;
 use InvalidArgumentException;
 
@@ -161,6 +163,21 @@ final class SyncRegistry
                 fields: ['gallery_id', 'garment_type_id', 'name', 'reference', 'description',
                     'base_price', 'cover_uri', 'tags', 'is_active', 'usage_count'],
                 parents: ['gallery_id' => 'model_galleries', 'garment_type_id' => 'garment_types'],
+            ),
+            new SyncEntity(
+                key: 'stock_items',
+                model: StockItem::class,
+                strategy: ConflictStrategy::LastWriteWins,
+                fields: ['name', 'reference', 'category', 'unit', 'low_stock_threshold',
+                    'notes', 'is_active'],
+            ),
+            new SyncEntity(
+                key: 'stock_movements',
+                model: StockMovement::class,
+                strategy: ConflictStrategy::AppendOnly,
+                fields: ['stock_item_id', 'type', 'quantity', 'note', 'moved_at'],
+                parents: ['stock_item_id' => 'stock_items'],
+                companyFrom: 'stock_item_id',
             ),
             new SyncEntity(
                 key: 'orders',
