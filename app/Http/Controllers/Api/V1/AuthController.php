@@ -16,6 +16,7 @@ use App\Http\Resources\UserResource;
 use App\Models\Company;
 use App\Models\RefreshToken;
 use App\Models\User;
+use App\Support\PhoneNumber;
 use App\Services\Auth\TokenIssuer;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Verified;
@@ -244,11 +245,18 @@ final class AuthController extends ApiController
             return User::query()->where('email', mb_strtolower($identifier))->first();
         }
 
-        $phone = (string) preg_replace('/[^0-9+]/', '', $identifier);
+        // Format international d'abord ; l'ancien format reste accepté tant
+        // que la reprise des numéros n'a pas été faite (koudi:normalize-phones).
+        $candidates = array_values(array_unique(array_filter([
+            PhoneNumber::normalize($identifier),
+            PhoneNumber::legacy($identifier),
+        ])));
 
-        return User::query()
-            ->where('phone', $phone)
-            ->orWhere('whatsapp', $phone)
-            ->first();
+        if ($candidates === []) {
+            return null;
+        }
+
+        return User::query()->whereIn('phone', $candidates)->first()
+            ?? User::query()->whereIn('whatsapp', $candidates)->first();
     }
 }

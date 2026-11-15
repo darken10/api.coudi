@@ -19,6 +19,12 @@ final class AppServiceProvider extends ServiceProvider
         // Le registre des codes OTP doit être partagé entre le fournisseur qui
         // les émet et le test qui les relit.
         $this->app->singleton(\App\Services\Otp\OtpCodeRegistry::class);
+        $this->app->singleton(\App\Services\Messaging\MessageOutbox::class);
+
+        // Fournisseurs SMS et WhatsApp : passerelle HTTP générique par défaut.
+        // Brancher un fournisseur dédié revient à changer ces deux liaisons.
+        $this->app->singleton(\App\Services\Messaging\SmsProvider::class, \App\Services\Messaging\HttpSmsProvider::class);
+        $this->app->singleton(\App\Services\Messaging\WhatsAppProvider::class, \App\Services\Messaging\HttpWhatsAppProvider::class);
     }
 
     /**
@@ -45,6 +51,10 @@ final class AppServiceProvider extends ServiceProvider
         // qui seul peut l'auditer. Un throttle de route trop serré masquerait
         // ce verrouillage et priverait le journal de ses traces.
         RateLimiter::for('admin-auth', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
+
+        // Activation d'un compte employé (numéro + code) : public, donc borné
+        // par IP. Le service ajoute une limite par numéro et par invitation.
+        RateLimiter::for('activation', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
 
         // Authenticated user requests - higher limit
         RateLimiter::for('authenticated', fn (Request $request) => $request->user()

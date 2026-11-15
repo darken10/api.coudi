@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\Admin\WorkshopResourceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CompanyController;
 use App\Http\Controllers\Api\V1\DiagnosticController;
+use App\Http\Controllers\Api\V1\EmployeeActivationController;
 use App\Http\Controllers\Api\V1\OtpController;
 use App\Http\Controllers\Api\V1\SyncController;
 use App\Http\Controllers\Api\V1\Workshop\ClientController;
@@ -41,12 +42,15 @@ Route::middleware('throttle:auth')->group(function (): void {
     Route::post('login', [AuthController::class, 'login'])->name('api.v1.login');
     Route::post('auth/refresh', [AuthController::class, 'refresh'])->name('api.v1.auth.refresh');
 
-    // Activation d'un compte employé : le token est le seul secret, il est
-    // donc limité en débit comme une authentification.
-    Route::get('employee-invitations/{token}', [EmployeeInvitationController::class, 'preview'])
-        ->name('api.v1.employee-invitations.preview');
-    Route::post('employee-invitations/{token}/accept', [EmployeeInvitationController::class, 'accept'])
-        ->name('api.v1.employee-invitations.accept');
+});
+
+// Activation d'un compte employé : numéro + code, puis mot de passe.
+// Public, borné par IP ici et par numéro / par invitation dans le service.
+Route::middleware('throttle:activation')->group(function (): void {
+    Route::post('auth/activation/verify', [EmployeeActivationController::class, 'verify'])
+        ->name('api.v1.activation.verify');
+    Route::post('auth/activation/complete', [EmployeeActivationController::class, 'complete'])
+        ->name('api.v1.activation.complete');
 });
 
 // Réinitialisation par OTP (public, débit fortement limité)
@@ -111,6 +115,11 @@ Route::middleware(['auth:sanctum', 'throttle:authenticated'])->group(function ()
     // CRUD REST du référentiel — console web. Le mobile n'y touche pas : il ne
     // parle qu'aux quatre points d'entrée de synchronisation ci-dessus.
     Route::middleware('company')->group(function (): void {
+        Route::get('employee-invitations', [EmployeeInvitationController::class, 'overview'])
+            ->name('api.v1.employee-invitations.overview');
+        Route::get('employee-invitations/channels', [EmployeeInvitationController::class, 'channels'])
+            ->name('api.v1.employee-invitations.channels');
+
         Route::prefix('employees/{employee}/invitations')->group(function (): void {
             Route::get('/', [EmployeeInvitationController::class, 'index'])
                 ->name('api.v1.employee-invitations.index');

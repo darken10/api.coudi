@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Otp;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\Messaging\MessageDeliveryException;
+use App\Services\Messaging\MessagingManager;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Passerelle HTTP générique pour SMS et WhatsApp.
+ * Codes de réinitialisation par SMS et WhatsApp.
  *
  * Le contrat attendu est minimal et documenté : POST sur l'URL configurée avec
  * `{ to, message, from }` et un jeton Bearer. Il ne s'agit donc pas d'un
@@ -32,7 +33,9 @@ final class HttpOtpProvider implements OtpProvider
         $config = config(sprintf('otp.providers.%s', $this->channel), []);
         $driver = (string) ($config['driver'] ?? 'log');
 
-        if ($driver === 'log') {
+        // Le code n'est écrit dans le journal qu'en développement local :
+        // en production, un driver `log` oublié ne doit pas livrer les codes.
+        if ($driver === 'log' && app()->environment('local')) {
             Log::info(sprintf('Code OTP %s émis', $this->channel), [
                 'identifier' => $identifier,
                 'code' => $code,
@@ -47,38 +50,15 @@ final class HttpOtpProvider implements OtpProvider
             return;
         }
 
-        $url = (string) ($config['url'] ?? '');
-        $token = (string) ($config['token'] ?? '');
-
-        if ($driver !== 'http' || $url === '' || $token === '') {
-            throw new OtpDeliveryException(sprintf(
-                'Fournisseur %s non configuré (driver=%s, url=%s).',
-                $this->channel,
-                $driver,
-                $url === '' ? 'vide' : 'définie',
+        // Envoi réel : même passerelle que les invitations employés.
+        try {
+            app(MessagingManager::class)->for($this->channel)->send($identifier, sprintf(
+                'Votre code COUDI est %s. Il expire dans %d minutes. Ne le partagez avec personne.',
+                $code,
+                config()->integer('koudi.otp.ttl_minutes', 10),
             ));
-        }
-
-        $response = Http::withToken($token)
-            ->acceptJson()
-            ->timeout(10)
-            ->post($url, [
-                'to' => $identifier,
-                'from' => $config['from'] ?? null,
-                'message' => sprintf(
-                    'Votre code Koudi est %s. Il expire dans %d minutes.',
-                    $code,
-                    (int) config('koudi.otp.ttl_minutes', 10),
-                ),
-            ]);
-
-        if ($response->failed()) {
-            // On ne journalise jamais le code ni le destinataire complet.
-            throw new OtpDeliveryException(sprintf(
-                'Échec de l’envoi %s (HTTP %d).',
-                $this->channel,
-                $response->status(),
-            ));
+        } catch (MessageDeliveryException $exception) {
+            throw new OtpDeliveryException($exception->getMessage());
         }
     }
 }

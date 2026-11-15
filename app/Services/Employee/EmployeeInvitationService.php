@@ -8,175 +8,124 @@ use App\Models\Company;
 use App\Models\Employee;
 use App\Models\EmployeeInvitation;
 use App\Models\User;
+use App\Services\Messaging\MessageDeliveryException;
+use App\Services\Messaging\MessagingManager;
+use App\Support\PhoneNumber;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Invitation d'un employé à activer son compte.
+ * Invitation d'un employé par téléphone : création, envoi, renvoi, suivi.
  *
- * Aucun mot de passe n'est choisi par le patron : l'employé le définit
- * lui-même en ouvrant le lien. Le compte naît `pending_activation` et ne peut
- * donc pas se connecter tant que l'invitation n'a pas été consommée.
+ * Le patron ne choisit jamais le mot de passe. Le compte naît
+ * `pending_activation`, ne peut pas se connecter, et ne devient actif qu'après
+ * le code (EmployeeActivationService) puis le mot de passe choisi par
+ * l'employé lui-même.
+ *
+ * Inviter de nouveau un employé (renvoi) crée une nouvelle invitation et
+ * révoque la précédente : l'ancien code cesse aussitôt de fonctionner.
  */
 final class EmployeeInvitationService
 {
-    /** @return array{invitation: EmployeeInvitation, token: string, url: string, deep_link: string} */
+    public function __construct(
+        private readonly MessagingManager $messaging,
+        private readonly InvitationEventRecorder $events,
+    ) {}
+
+    /**
+     * Crée l'invitation et envoie le code. Le résultat de l'envoi est celui
+     * du fournisseur : l'invitation peut revenir en `send_failed`.
+     *
+     * @return array{invitation: EmployeeInvitation, simulated: bool}
+     */
     public function invite(
         Company $company,
         Employee $employee,
         User $actor,
-        ?string $email = null,
-        ?string $phone = null,
+        ?string $phone,
+        string $channel,
+        ?string $ip = null,
     ): array {
-        $email = $this->normalizeEmail($email ?? $employee->email);
-        $phone = $this->normalizePhone($phone ?? $employee->phone ?? $employee->whatsapp);
+        $phone = $this->assertPhone($phone);
+        $this->assertChannel($channel);
+        $this->assertEmployeeInvitable($employee);
 
-        if ($email === null && $phone === null) {
-            throw ValidationException::withMessages([
-                'email' => 'Renseignez au moins un email ou un téléphone pour inviter cet employé.',
+        [$invitation, $code] = DB::transaction(function () use ($company, $employee, $actor, $phone, $channel, $ip): array {
+            // Verrou sur l'employé : deux envois simultanés ne produisent
+            // qu'une invitation vivante.
+            $locked = Employee::query()->whereKey($employee->getKey())->lockForUpdate()->firstOrFail();
+
+            $this->assertSendLimits($locked);
+            $user = $this->resolvePendingUser($locked, $phone);
+
+            $previous = EmployeeInvitation::query()
+                ->where('employee_id', $locked->getKey())
+                ->whereNull('accepted_at')
+                ->whereNull('revoked_at')
+                ->get();
+
+            foreach ($previous as $old) {
+                $old->forceFill(['revoked_at' => now(), 'ticket_hash' => null])->save();
+                $this->events->record($old, 'revoked', $actor->id, $ip, ['reason' => 'superseded']);
+            }
+
+            $id = (string) Str::uuid();
+            $code = InvitationCode::generate();
+
+            $invitation = EmployeeInvitation::query()->create([
+                'id' => $id,
+                'company_id' => $company->syncCompanyId(),
+                'employee_id' => $locked->getKey(),
+                'user_id' => $user->id,
+                'phone' => $phone,
+                'channel' => $channel,
+                'send_status' => EmployeeInvitation::SEND_PENDING,
+                'code_hash' => InvitationCode::hash($id, $code),
+                'max_attempts' => config()->integer('koudi.invitation.max_attempts', 5),
+                'expires_at' => now()->addHours(config()->integer('koudi.invitation.code_ttl_hours', 24)),
+                'created_by' => $actor->id,
             ]);
-        }
 
-        $user = $this->resolveUser($company, $employee, $email, $phone);
+            $this->events->record($invitation, $previous->isEmpty() ? 'created' : 'resent', $actor->id, $ip);
 
-        if ($user->status === User::STATUS_ACTIVE && $employee->user_id !== null) {
-            throw ValidationException::withMessages([
-                'employee' => 'Ce compte employé est déjà activé.',
-            ]);
-        }
+            return [$invitation, $code];
+        });
 
-        if ($employee->user_id === null) {
-            $employee->forceFill(['user_id' => $user->id])->save();
-        }
+        $simulated = $this->deliver($invitation, $code, $employee, $company, $actor, $ip);
 
-        // Une seule invitation vivante à la fois : la précédente est révoquée.
-        EmployeeInvitation::query()
-            ->where('employee_id', $employee->id)
-            ->whereNull('accepted_at')
-            ->whereNull('revoked_at')
-            ->update(['revoked_at' => now()]);
-
-        $ttl = (int) config('koudi.invitation_ttl_hours', 72);
-
-        [$plain, $invitation] = EmployeeInvitation::issue([
-            'company_id' => $company->getKey(),
-            'employee_id' => $employee->getKey(),
-            'user_id' => $user->id,
-            'email' => $email,
-            'phone' => $phone,
-            'created_by' => $actor->id,
-        ], $ttl);
-
-        $url = sprintf('%s?token=%s', config('koudi.activation_url'), urlencode($plain));
-        $deepLink = sprintf(
-            '%s://activer?token=%s',
-            config('koudi.mobile_scheme'),
-            urlencode($plain),
-        );
-
-        if ($email !== null) {
-            $this->sendInvitationEmail($email, $employee->name, $company->name ?? 'votre atelier', $url);
-        }
-
-        return [
-            'invitation' => $invitation,
-            'token' => $plain,
-            'url' => $url,
-            'deep_link' => $deepLink,
-        ];
-    }
-
-    /** Aperçu public, avant toute saisie de mot de passe. */
-    public function preview(string $plain): EmployeeInvitation
-    {
-        $invitation = EmployeeInvitation::findByPlainToken($plain);
-
-        if ($invitation === null || ! $invitation->isUsable()) {
-            throw ValidationException::withMessages([
-                'token' => 'Cette invitation est invalide, expirée ou déjà utilisée.',
-            ]);
-        }
-
-        return $invitation;
+        return ['invitation' => $invitation->refresh(), 'simulated' => $simulated];
     }
 
     /**
-     * Active le compte et retourne l'utilisateur prêt à recevoir ses jetons.
+     * Renvoie un code. Sans numéro ni canal fournis, reprend ceux de la
+     * dernière invitation (ou de la fiche employé).
      *
-     * @param  array{name: string, password: string, email?: string|null, phone?: string|null}  $data
+     * @return array{invitation: EmployeeInvitation, simulated: bool}
      */
-    public function accept(string $plain, array $data): User
-    {
-        $invitation = $this->preview($plain);
+    public function resend(
+        Company $company,
+        Employee $employee,
+        User $actor,
+        ?string $phone = null,
+        ?string $channel = null,
+        ?string $ip = null,
+    ): array {
+        $last = $this->latestFor($employee);
 
-        /** @var User|null $user */
-        $user = $invitation->user;
-
-        if ($user === null) {
-            throw ValidationException::withMessages([
-                'token' => 'Le compte associé à cette invitation n’existe plus.',
-            ]);
-        }
-
-        if ($user->status === User::STATUS_ACTIVE) {
-            throw ValidationException::withMessages([
-                'token' => 'Ce compte est déjà activé. Connectez-vous.',
-            ]);
-        }
-
-        $email = $this->normalizeEmail($data['email'] ?? $invitation->email ?? $user->email);
-        $phone = $this->normalizePhone($data['phone'] ?? $invitation->phone ?? $user->phone);
-
-        if ($email === null && $phone === null) {
-            throw ValidationException::withMessages([
-                'email' => 'Un email ou un téléphone est nécessaire pour vous connecter.',
-            ]);
-        }
-
-        $this->assertAvailable($user, $email, $phone);
-
-        DB::transaction(function () use ($user, $invitation, $data, $email, $phone): void {
-            $user->forceFill([
-                'name' => trim($data['name']),
-                // Le cast `hashed` hache automatiquement la valeur.
-                'password' => $data['password'],
-                'email' => $email,
-                'phone' => $phone,
-                'whatsapp' => $phone,
-                'status' => User::STATUS_ACTIVE,
-                'email_verified_at' => $email === null ? null : now(),
-            ])->save();
-
-            $company = $invitation->company;
-            $employee = $invitation->employee;
-
-            if ($company !== null && ! $user->companies()->whereKey($company->getKey())->exists()) {
-                $user->companies()->attach($company->getKey(), [
-                    'role' => Company::ROLE_TAILOR,
-                    'joined_at' => now(),
-                ]);
-            }
-
-            if ($employee !== null && $employee->user_id === null) {
-                $employee->forceFill(['user_id' => $user->id])->save();
-            }
-
-            $invitation->forceFill(['accepted_at' => now()])->save();
-
-            EmployeeInvitation::query()
-                ->where('employee_id', $invitation->employee_id)
-                ->whereKeyNot($invitation->getKey())
-                ->whereNull('accepted_at')
-                ->update(['revoked_at' => now()]);
-        });
-
-        return $user->refresh();
+        return $this->invite(
+            $company,
+            $employee,
+            $actor,
+            $phone ?? ($last === null ? $employee->phone : $last->phone),
+            $channel ?? ($last === null ? 'sms' : ($last->channel ?? 'sms')),
+            $ip,
+        );
     }
 
-    public function revoke(EmployeeInvitation $invitation): void
+    public function revoke(EmployeeInvitation $invitation, User $actor, ?string $ip = null): void
     {
         if ($invitation->accepted_at !== null) {
             throw ValidationException::withMessages([
@@ -184,122 +133,228 @@ final class EmployeeInvitationService
             ]);
         }
 
-        $invitation->forceFill(['revoked_at' => now()])->save();
+        $invitation->forceFill(['revoked_at' => now(), 'ticket_hash' => null])->save();
+        $this->events->record($invitation, 'revoked', $actor->id, $ip, ['reason' => 'manual']);
     }
 
-    private function resolveUser(
-        Company $company,
-        Employee $employee,
-        ?string $email,
-        ?string $phone,
-    ): User {
-        if ($employee->user_id !== null) {
-            /** @var User|null $user */
-            $user = User::query()->find($employee->user_id);
-
-            if ($user === null) {
-                throw ValidationException::withMessages([
-                    'employee' => 'Le compte lié à cet employé est introuvable.',
-                ]);
-            }
-
-            return $user;
-        }
-
-        $user = User::query()
-            ->when($email !== null, fn ($query) => $query->where('email', $email))
-            ->when($email === null && $phone !== null, fn ($query) => $query->where('phone', $phone))
+    public function latestFor(Employee $employee): ?EmployeeInvitation
+    {
+        return EmployeeInvitation::query()
+            ->where('employee_id', $employee->getKey())
+            ->latest('created_at')
+            ->latest('id')
             ->first();
+    }
 
-        if ($user !== null) {
-            $alreadyLinked = Employee::query()
-                ->where('company_id', $company->getKey())
-                ->where('user_id', $user->id)
-                ->whereKeyNot($employee->getKey())
-                ->exists();
+    /**
+     * Dernière invitation de chaque employé de l'atelier : l'écran de suivi.
+     *
+     * @return Collection<int, EmployeeInvitation>
+     */
+    public function overview(Company $company): Collection
+    {
+        return EmployeeInvitation::query()
+            ->with('employee:id,name,phone,status')
+            ->where('company_id', $company->syncCompanyId())
+            ->latest('created_at')
+            ->get()
+            ->unique('employee_id')
+            ->filter(fn (EmployeeInvitation $invitation): bool => $invitation->employee !== null)
+            ->values();
+    }
 
-            if ($alreadyLinked) {
-                throw ValidationException::withMessages([
-                    'employee' => 'Ce compte est déjà rattaché à un autre employé de l’atelier.',
-                ]);
-            }
-
-            return $user;
+    /** Délai restant avant qu'un renvoi soit permis, en secondes (0 si permis). */
+    public function resendAvailableIn(?EmployeeInvitation $last): int
+    {
+        if ($last?->created_at === null) {
+            return 0;
         }
 
-        return User::query()->create([
-            'name' => $employee->name,
-            'email' => $email,
-            'phone' => $phone,
-            'whatsapp' => $phone,
-            // Jamais utilisé : l'activation remplace immédiatement ce secret.
-            'password' => Str::random(48),
-            'status' => User::STATUS_PENDING_ACTIVATION,
+        $wait = config()->integer('koudi.invitation.resend_seconds', 60);
+
+        return max(0, $wait - (int) $last->created_at->diffInSeconds(now()));
+    }
+
+    /** Envoie le message ; ne lève jamais : l'échec est un statut. */
+    private function deliver(
+        EmployeeInvitation $invitation,
+        string $code,
+        Employee $employee,
+        Company $company,
+        User $actor,
+        ?string $ip,
+    ): bool {
+        $channel = (string) $invitation->channel;
+
+        try {
+            $sent = $this->messaging->for($channel)->send(
+                (string) $invitation->phone,
+                $this->message($employee, $company, $code),
+            );
+        } catch (MessageDeliveryException $exception) {
+            $invitation->forceFill([
+                'send_status' => EmployeeInvitation::SEND_FAILED,
+                'send_error' => $exception->reason,
+            ])->save();
+            $this->events->record($invitation, 'send_failed', $actor->id, $ip, ['reason' => $exception->reason]);
+
+            Log::warning('Envoi du code d’activation impossible', [
+                'invitation' => $invitation->getKey(),
+                'channel' => $channel,
+                'reason' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        $invitation->forceFill([
+            'send_status' => EmployeeInvitation::SEND_SENT,
+            'send_error' => null,
+            'provider_message_id' => $sent->providerMessageId,
+            'sent_at' => now(),
+        ])->save();
+        $this->events->record($invitation, 'sent', $actor->id, $ip, ['simulated' => $sent->simulated]);
+
+        return $sent->simulated;
+    }
+
+    private function message(Employee $employee, Company $company, string $code): string
+    {
+        $firstName = Str::of((string) $employee->name)->trim()->explode(' ')->first() ?: 'à vous';
+        $hours = config()->integer('koudi.invitation.code_ttl_hours', 24);
+
+        return implode("\n", [
+            sprintf('Bonjour %s,', $firstName),
+            '',
+            sprintf('Votre compte employé COUDI a été créé par %s.', $company->name ?: 'votre responsable d’atelier'),
+            '',
+            sprintf('Votre code d’activation est : %s', $code),
+            '',
+            sprintf('Ce code est valable pendant %d heures.', $hours),
+            '',
+            'Installez l’application COUDI, puis saisissez votre numéro de téléphone et ce code pour activer votre compte.',
+            '',
+            'Ne partagez ce code avec personne.',
         ]);
     }
 
-    private function assertAvailable(User $user, ?string $email, ?string $phone): void
+    private function assertPhone(?string $phone): string
     {
-        if ($email !== null) {
-            $taken = User::query()->where('email', $email)->whereKeyNot($user->id)->exists();
+        $normalized = PhoneNumber::normalize($phone);
 
-            if ($taken) {
-                throw ValidationException::withMessages([
-                    'email' => 'Cet email est déjà utilisé par un autre compte.',
-                ]);
-            }
+        if ($normalized === null) {
+            throw ValidationException::withMessages([
+                'phone' => $phone === null || trim($phone) === ''
+                    ? 'Le numéro de téléphone de l’employé est obligatoire pour l’inviter.'
+                    : 'Ce numéro de téléphone n’est pas valide. Exemple : 70 12 34 56 ou +226 70 12 34 56.',
+            ]);
         }
 
-        if ($phone !== null) {
-            $taken = User::query()->where('phone', $phone)->whereKeyNot($user->id)->exists();
-
-            if ($taken) {
-                throw ValidationException::withMessages([
-                    'phone' => 'Ce téléphone est déjà utilisé par un autre compte.',
-                ]);
-            }
-        }
+        return $normalized;
     }
 
-    private function sendInvitationEmail(string $email, string $name, string $company, string $url): void
+    private function assertChannel(string $channel): void
     {
-        try {
-            Mail::raw(
-                sprintf(
-                    "Bonjour %s,\n\n%s vous invite à rejoindre l'atelier sur Koudi.\n\nOuvrez ce lien pour activer votre compte :\n%s\n\nCe lien expire dans %d heures et ne peut servir qu'une fois.",
-                    $name,
-                    $company,
-                    $url,
-                    (int) config('koudi.invitation_ttl_hours', 72),
-                ),
-                static function ($message) use ($email): void {
-                    $message->to($email)->subject('Votre invitation Koudi');
-                },
-            );
-        } catch (\Throwable $exception) {
-            // L'admin garde le lien affiché : un échec SMTP ne doit pas annuler
-            // l'invitation, mais il doit rester visible dans les journaux.
-            Log::warning('Envoi de l’invitation impossible', [
-                'reason' => $exception->getMessage(),
+        if (! in_array($channel, MessagingManager::CHANNELS, true)) {
+            throw ValidationException::withMessages(['channel' => 'Choisissez l’envoi par SMS ou par WhatsApp.']);
+        }
+
+        $availability = $this->messaging->for($channel)->availability();
+
+        if (! $availability->available) {
+            throw ValidationException::withMessages([
+                'channel' => $availability->reason ?? 'Ce canal d’envoi n’est pas disponible.',
             ]);
         }
     }
 
-    private function normalizeEmail(?string $email): ?string
+    private function assertEmployeeInvitable(Employee $employee): void
     {
-        $email = $email === null ? null : trim($email);
-
-        return $email === null || $email === '' ? null : mb_strtolower($email);
+        if ($employee->status !== 'active') {
+            throw ValidationException::withMessages([
+                'employee' => 'Cet employé est désactivé. Réactivez sa fiche avant de l’inviter.',
+            ]);
+        }
     }
 
-    private function normalizePhone(?string $phone): ?string
+    private function assertSendLimits(Employee $employee): void
     {
-        if ($phone === null) {
-            return null;
+        $last = $this->latestFor($employee);
+        $wait = $this->resendAvailableIn($last);
+
+        if ($wait > 0) {
+            throw ValidationException::withMessages([
+                'employee' => sprintf('Un code vient d’être envoyé. Patientez %d secondes avant d’en renvoyer un.', $wait),
+            ]);
         }
 
-        $phone = (string) preg_replace('/[^0-9+]/', '', $phone);
+        $max = config()->integer('koudi.invitation.max_sends_per_day', 5);
+        $sentToday = EmployeeInvitation::query()
+            ->where('employee_id', $employee->getKey())
+            ->where('created_at', '>=', now()->subDay())
+            ->count();
 
-        return $phone === '' ? null : $phone;
+        if ($sentToday >= $max) {
+            throw ValidationException::withMessages([
+                'employee' => sprintf('Limite atteinte : %d codes envoyés à cet employé en 24 heures. Réessayez demain.', $max),
+            ]);
+        }
+    }
+
+    /**
+     * Compte en attente lié à l'employé.
+     *
+     * Un numéro déjà porté par un autre compte Coudi (actif ou invité par un
+     * autre atelier) est refusé : on ne crée jamais de second compte et on ne
+     * rattache pas un compte existant.
+     */
+    private function resolvePendingUser(Employee $employee, string $phone): User
+    {
+        $user = $employee->user_id === null ? null : User::query()->find($employee->user_id);
+
+        if ($user !== null && $user->status === User::STATUS_ACTIVE) {
+            throw ValidationException::withMessages([
+                'employee' => 'Ce compte employé est déjà activé : il n’y a plus de code à envoyer.',
+            ]);
+        }
+
+        if ($user !== null && $user->status === User::STATUS_SUSPENDED) {
+            throw ValidationException::withMessages([
+                'employee' => 'Le compte de cet employé est suspendu.',
+            ]);
+        }
+
+        $legacy = PhoneNumber::legacy($phone);
+        $taken = User::query()
+            ->where(fn ($query) => $query
+                ->whereIn('phone', array_values(array_unique(array_filter([$phone, $legacy]))))
+                ->orWhereIn('whatsapp', array_values(array_unique(array_filter([$phone, $legacy])))))
+            ->when($user instanceof User, fn ($query) => $query->whereKeyNot($user?->id))
+            ->exists();
+
+        if ($taken) {
+            throw ValidationException::withMessages([
+                'phone' => 'Ce numéro est déjà utilisé par un autre compte COUDI. Utilisez un autre numéro pour cet employé.',
+            ]);
+        }
+
+        if ($user instanceof User) {
+            $user->forceFill(['phone' => $phone, 'name' => $employee->name])->save();
+
+            return $user;
+        }
+
+        /** @var User $user */
+        $user = User::query()->create([
+            'name' => $employee->name,
+            'phone' => $phone,
+            // Inutilisable : remplacé par le mot de passe que l'employé choisira.
+            'password' => Str::random(64),
+            'status' => User::STATUS_PENDING_ACTIVATION,
+        ]);
+
+        $employee->forceFill(['user_id' => $user->id])->save();
+
+        return $user;
     }
 }

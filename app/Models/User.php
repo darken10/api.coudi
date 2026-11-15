@@ -20,8 +20,12 @@ use Laravel\Sanctum\HasApiTokens;
 /**
  * @property int $id
  * @property string $name
- * @property string $email
+ * @property string|null $email
+ * @property string|null $phone
+ * @property string $status
  * @property Carbon|null $email_verified_at
+ * @property Carbon|null $phone_verified_at
+ * @property Carbon|null $password_set_at
  * @property string $password
  * @property string $role
  * @property string|null $two_factor_secret
@@ -165,6 +169,8 @@ final class User extends Authenticatable implements MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
+            'password_set_at' => 'datetime',
             'password' => 'hashed',
             // Chiffrés au repos : une fuite de la base ne livre pas les graines TOTP.
             'two_factor_secret' => 'encrypted',

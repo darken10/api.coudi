@@ -6,11 +6,13 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\V1\Employee\InviteEmployeeRequest;
+use App\Http\Resources\EmployeeInvitationResource;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\EmployeeInvitation;
 use App\Models\User;
 use App\Services\Employee\EmployeeInvitationService;
+use App\Services\Messaging\MessagingManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,7 +26,7 @@ final class EmployeeInvitationController extends ApiController
 {
     public function __construct(private readonly EmployeeInvitationService $invitations) {}
 
-    public function index(Company $company, string $employee): JsonResponse
+    public function index(Company $company, string $employee, MessagingManager $messaging): JsonResponse
     {
         $model = $this->employee($company, $employee);
 
@@ -33,19 +35,19 @@ final class EmployeeInvitationController extends ApiController
         }
 
         $items = EmployeeInvitation::query()
-            ->where('employee_id', $model->id)
+            ->where('employee_id', $model->getKey())
             ->latest('created_at')
-            ->get()
-            ->map(fn (EmployeeInvitation $invitation): array => $this->present($invitation));
+            ->get();
 
-        return $this->success($items);
+        return $this->success([
+            'items' => EmployeeInvitationResource::collection($items),
+            'resend_available_in' => $this->invitations->resendAvailableIn($items->first()),
+            'channels' => $messaging->availability(),
+        ]);
     }
 
-    public function store(
-        InviteEmployeeRequest $request,
-        Company $company,
-        string $employee,
-    ): JsonResponse {
+    public function store(InviteEmployeeRequest $request, Company $company, string $employee): JsonResponse
+    {
         $model = $this->employee($company, $employee);
 
         if ($model === null) {
@@ -54,24 +56,24 @@ final class EmployeeInvitationController extends ApiController
 
         /** @var User $actor */
         $actor = $request->user();
+        $phone = $request->filled('phone') ? $request->string('phone')->toString() : null;
+        $channel = $request->filled('channel') ? $request->string('channel')->toString() : null;
 
-        $result = $this->invitations->invite(
-            $company,
-            $model,
-            $actor,
-            $request->input('email'),
-            $request->input('phone'),
+        $result = $this->invitations->latestFor($model) === null
+            ? $this->invitations->invite($company, $model, $actor, $phone ?? $model->phone, $channel ?? 'sms', $request->ip())
+            : $this->invitations->resend($company, $model, $actor, $phone, $channel, $request->ip());
+
+        $invitation = $result['invitation'];
+
+        return $this->created(
+            ['invitation' => new EmployeeInvitationResource($invitation), 'simulated' => $result['simulated']],
+            $invitation->send_status === EmployeeInvitation::SEND_SENT
+                ? 'Code d’activation envoyé.'
+                : 'L’invitation est créée mais le code n’a pas pu être envoyé.',
         );
-
-        return $this->created([
-            'invitation' => $this->present($result['invitation']),
-            'token' => $result['token'],
-            'activation_url' => $result['url'],
-            'deep_link' => $result['deep_link'],
-        ], 'Invitation créée. Le lien ne sera plus affiché.');
     }
 
-    public function destroy(Company $company, string $invitation): JsonResponse
+    public function destroy(Request $request, Company $company, string $invitation): JsonResponse
     {
         $model = EmployeeInvitation::query()
             ->where('company_id', $company->getKey())
@@ -82,9 +84,11 @@ final class EmployeeInvitationController extends ApiController
             return $this->notFound('Invitation introuvable.');
         }
 
-        $this->invitations->revoke($model);
+        /** @var User $actor */
+        $actor = $request->user();
+        $this->invitations->revoke($model, $actor, $request->ip());
 
-        return $this->success(message: 'Invitation révoquée.');
+        return $this->success(new EmployeeInvitationResource($model->refresh()), 'Invitation révoquée.');
     }
 
     private function employee(Company $company, string $id): ?Employee
@@ -93,20 +97,5 @@ final class EmployeeInvitationController extends ApiController
             ->where('company_id', $company->getKey())
             ->whereKey($id)
             ->first();
-    }
-
-    /** @return array<string, mixed> */
-    private function present(EmployeeInvitation $invitation): array
-    {
-        return [
-            'id' => $invitation->getKey(),
-            'employee_id' => $invitation->employee_id,
-            'email' => $invitation->email,
-            'phone' => $invitation->phone,
-            'expires_at' => $invitation->expires_at->toIso8601String(),
-            'accepted_at' => $invitation->accepted_at?->toIso8601String(),
-            'revoked_at' => $invitation->revoked_at?->toIso8601String(),
-            'created_at' => $invitation->created_at?->toIso8601String(),
-        ];
     }
 }
