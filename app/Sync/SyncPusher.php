@@ -505,21 +505,24 @@ final class SyncPusher
         $model->fill($payload);
 
         $model->forceFill([
-            'company_id' => $company->syncCompanyId(),
             'last_device_id' => $device->deviceId(),
             'revision' => $revision,
             'deleted_at' => null,
         ]);
+
+        // L'atelier est désigné par sa propre clé : la table `companies` n'a
+        // pas de colonne company_id. L'y écrire faisait échouer toute
+        // modification de l'atelier envoyée par un téléphone (nom, adresse…),
+        // refusée à chaque synchronisation.
+        if ($entity->key !== 'companies') {
+            $model->forceFill(['company_id' => $company->syncCompanyId()]);
+        }
 
         // Écrire l'horodatage de l'appareil garde l'arbitrage comparable d'un
         // téléphone à l'autre ; le plafonner à maintenant empêche une horloge
         // déréglée de gagner tous les conflits à venir.
         if (($clientAt = $this->clientTimestamp($op)) !== null) {
             $model->forceFill(['updated_at' => $clientAt]);
-        }
-
-        if ($entity->key === 'companies') {
-            $model->forceFill(['company_id' => $company->syncCompanyId()]);
         }
 
         return $model;

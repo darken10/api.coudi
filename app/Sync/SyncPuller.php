@@ -156,7 +156,7 @@ final class SyncPuller
         $index = [];
         foreach ($changes as $key => $rows) {
             foreach ($rows as $row) {
-                $index[$key][(string) $row['id']] = true;
+                $index[$key][$this->idOf($row['id'] ?? null)] = true;
             }
         }
 
@@ -167,7 +167,8 @@ final class SyncPuller
             foreach ($changes as $key => $rows) {
                 foreach (SyncRegistry::get($key)->parents as $column => $parentKey) {
                     foreach ($rows as $row) {
-                        $value = $row['data'][$column] ?? null;
+                        $data = $row['data'] ?? null;
+                        $value = is_array($data) ? ($data[$column] ?? null) : null;
 
                         if (is_string($value) && $value !== '' && ! isset($index[$parentKey][$value])) {
                             $missing[$parentKey][$value] = true;
@@ -197,7 +198,7 @@ final class SyncPuller
                 $scope->apply($parentKey, $query);
 
                 foreach ($query->get() as $model) {
-                    $index[$parentKey][(string) $model->getKey()] = true;
+                    $index[$parentKey][$this->idOf($model->getKey())] = true;
                     $changes[$parentKey][] = $this->serialize($entity, $model);
                     $counts[$parentKey] = ($counts[$parentKey] ?? 0) + 1;
                     $added++;
@@ -210,6 +211,11 @@ final class SyncPuller
         }
 
         return $changes;
+    }
+
+    private function idOf(mixed $id): string
+    {
+        return is_scalar($id) ? (string) $id : '';
     }
 
     /**

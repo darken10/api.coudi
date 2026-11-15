@@ -21,7 +21,7 @@ return new class extends Migration
         $rows = DB::table('users')->whereNotNull('email')->get(['id', 'email']);
 
         foreach ($rows as $row) {
-            $email = (string) $row->email;
+            $email = is_string($row->email) ? $row->email : '';
             $lower = mb_strtolower(trim($email));
 
             if ($lower === $email) {

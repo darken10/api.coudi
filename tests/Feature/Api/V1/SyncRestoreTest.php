@@ -215,3 +215,28 @@ describe('Adresse e-mail et casse', function (): void {
         ])->assertStatus(422)->assertJsonValidationErrors('email');
     });
 });
+
+describe('Modification de l’atelier depuis le téléphone', function (): void {
+    it('accepte le renommage de l’atelier et le restitue au nouvel appareil', function (): void {
+        [$owner, $company] = restoreWorkshop();
+        Sanctum::actingAs($owner);
+        $phone = freshDevice($owner);
+
+        $this->travel(1)->seconds();
+        $this->postJson('/api/v1/sync/push', ['ops' => [
+            restoreOp('companies', ['name' => 'Atelier Alice Couture', 'address' => 'Ouagadougou', 'status' => 'active'], $company->getKey()),
+        ]], ['X-Company-Id' => $company->getKey(), 'X-Device-Id' => $phone->getKey()])
+            ->assertOk()
+            ->assertJsonPath('data.summary.applied', 1)
+            ->assertJsonPath('data.summary.rejected', 0);
+
+        expect($company->refresh()->name)->toBe('Atelier Alice Couture');
+
+        $page = $this->postJson('/api/v1/sync/bootstrap', ['since' => 0], [
+            'X-Company-Id' => $company->getKey(), 'X-Device-Id' => freshDevice($owner)->getKey(),
+        ])->assertOk()->json('data.changes.companies');
+
+        expect($page[0]['data']['name'])->toBe('Atelier Alice Couture')
+            ->and($page[0]['data']['address'])->toBe('Ouagadougou');
+    });
+});
