@@ -10,6 +10,7 @@ use App\Http\Requests\Api\V1\Diagnostic\UpdateDiagnosticSettingsRequest;
 use App\Models\AdminAction;
 use App\Models\Company;
 use App\Models\DiagnosticSetting;
+use App\Http\Resources\EmployeeInvitationResource;
 use App\Models\EmployeeInvitation;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -189,18 +190,11 @@ final class CompanyController extends ApiController
             ->where('company_id', $company->getKey())
             ->whereNull('accepted_at')
             ->whereNull('revoked_at')
-            ->where('expires_at', '>', now())
             ->latest('created_at')
             ->get()
-            ->map(static function (EmployeeInvitation $invitation): array {
-                return [
-                    'id' => $invitation->getKey(),
-                    'employee_name' => $invitation->employee?->name,
-                    'email' => $invitation->email,
-                    'phone' => $invitation->phone,
-                    'expires_at' => $invitation->expires_at?->toIso8601String(),
-                ];
-            })
+            // Invitations encore ouvertes, quel que soit leur état (envoi
+            // échoué, code expiré ou bloqué) : le statut dit quoi faire.
+            ->map(static fn (EmployeeInvitation $invitation): array => (new EmployeeInvitationResource($invitation))->resolve())
             ->values()
             ->all();
     }

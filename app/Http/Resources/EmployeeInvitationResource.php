@@ -26,7 +26,7 @@ final class EmployeeInvitationResource extends JsonResource
     {
         $status = $this->status();
         /** @var Employee|null $employee */
-        $employee = $this->relationLoaded('employee') ? $this->employee : null;
+        $employee = $this->employee;
 
         return [
             'id' => $this->getKey(),
