@@ -108,7 +108,7 @@ final class EmployeeInvitationController extends ApiController
         );
     }
 
-    public function destroy(Request $request, string $invitation): JsonResponse
+    public function destroy(Request $request, string $employee, string $invitation): JsonResponse
     {
         if (! $this->canWrite($request)) {
             return $this->forbidden('Votre rôle sur cet atelier ne permet pas de révoquer une invitation.');
@@ -116,6 +116,7 @@ final class EmployeeInvitationController extends ApiController
 
         $model = EmployeeInvitation::query()
             ->where('company_id', $this->company($request)->syncCompanyId())
+            ->where('employee_id', $employee)
             ->whereKey($invitation)
             ->first();
 

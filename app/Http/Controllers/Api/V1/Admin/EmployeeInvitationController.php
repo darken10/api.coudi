@@ -73,10 +73,11 @@ final class EmployeeInvitationController extends ApiController
         );
     }
 
-    public function destroy(Request $request, Company $company, string $invitation): JsonResponse
+    public function destroy(Request $request, Company $company, string $employee, string $invitation): JsonResponse
     {
         $model = EmployeeInvitation::query()
             ->where('company_id', $company->getKey())
+            ->where('employee_id', $employee)
             ->whereKey($invitation)
             ->first();
 
