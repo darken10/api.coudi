@@ -43,7 +43,7 @@ final class CreateSuperAdmin extends Command
             return self::FAILURE;
         }
 
-        $existing = User::query()->where('email', $email)->first();
+        $existing = User::query()->where('email', mb_strtolower(trim($email)))->first();
 
         if ($existing) {
             $existing->forceFill([

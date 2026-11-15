@@ -165,7 +165,7 @@ final class AuthController extends ApiController
 
     public function resendVerificationEmail(ResendVerificationRequest $request): JsonResponse
     {
-        $user = User::query()->where('email', $request->email)->first();
+        $user = User::query()->where('email', mb_strtolower(trim((string) $request->email)))->first();
 
         if (! $user) {
             return $this->notFound('User not found');

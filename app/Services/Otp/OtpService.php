@@ -130,7 +130,7 @@ final class OtpService
     public function findUser(string $identifier): ?User
     {
         return User::query()
-            ->where('email', $identifier)
+            ->where('email', mb_strtolower($identifier))
             ->orWhere('phone', $identifier)
             ->orWhere('whatsapp', $identifier)
             ->first();

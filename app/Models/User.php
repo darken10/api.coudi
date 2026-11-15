@@ -7,6 +7,7 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -165,6 +166,22 @@ final class User extends Authenticatable implements MustVerifyEmail
      *
      * @return array<string, string>
      */
+    /**
+     * L'adresse e-mail est toujours enregistrée en minuscules.
+     *
+     * Sinon « Alice@Kudi.test » s'inscrit, mais la connexion — qui cherche en
+     * minuscules — ne retrouve plus le compte sur une base sensible à la
+     * casse : l'utilisateur en recrée un, vide, et croit ses données perdues.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            set: static fn (?string $value): ?string => $value === null ? null : mb_strtolower(trim($value)),
+        );
+    }
+
     protected function casts(): array
     {
         return [

@@ -113,6 +113,8 @@ final class SyncPuller
             }
         }
 
+        $changes = $this->withMissingParents($changes, $counts, $companyId, $cursor, $scope);
+
         return [
             'changes' => $changes,
             'cursor' => $cursor,
@@ -120,6 +122,94 @@ final class SyncPuller
             'has_more' => $cursor < $ceiling,
             'counts' => $counts,
         ];
+    }
+
+    /**
+     * Rend chaque page autonome : tout parent référencé par une ligne de la
+     * page y figure aussi.
+     *
+     * Les lignes partent par révision croissante. Un parent modifié après ses
+     * enfants (un client corrigé après sa prise de mesures) porte une révision
+     * plus haute : sur un gros atelier, il tombe dans une page suivante. Le
+     * téléphone, qui applique chaque page d'un seul bloc sous contrainte de
+     * clé étrangère, rejetait alors la page entière — atelier compris — et la
+     * restauration après réinstallation laissait une liste vide.
+     *
+     * Le parent est donc joint dès maintenant. Il repartira à sa propre
+     * révision dans une page ultérieure : l'écriture côté téléphone est
+     * idempotente, ce doublon est sans effet. Le cloisonnement employé
+     * s'applique aussi aux parents ajoutés.
+     *
+     * @param  array<string, list<array<string, mixed>>>  $changes
+     * @param  array<string, int>  $counts
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function withMissingParents(array $changes, array &$counts, string $companyId, int $cursor, SyncScope $scope): array
+    {
+        if ($changes === []) {
+            return $changes;
+        }
+
+        // Plusieurs passes : un parent ajouté peut lui-même avoir un parent
+        // absent (paiement → commande → client). La profondeur réelle est 3.
+        /** @var array<string, array<string, true>> $index */
+        $index = [];
+        foreach ($changes as $key => $rows) {
+            foreach ($rows as $row) {
+                $index[$key][(string) $row['id']] = true;
+            }
+        }
+
+        for ($pass = 0; $pass < 5; $pass++) {
+            /** @var array<string, array<string, true>> $missing */
+            $missing = [];
+
+            foreach ($changes as $key => $rows) {
+                foreach (SyncRegistry::get($key)->parents as $column => $parentKey) {
+                    foreach ($rows as $row) {
+                        $value = $row['data'][$column] ?? null;
+
+                        if (is_string($value) && $value !== '' && ! isset($index[$parentKey][$value])) {
+                            $missing[$parentKey][$value] = true;
+                        }
+                    }
+                }
+            }
+
+            // L'atelier est le parent de toutes les lignes qui portent company_id.
+            if (! isset($index['companies'][$companyId])) {
+                $missing['companies'][$companyId] = true;
+            }
+
+            $added = 0;
+
+            foreach ($missing as $parentKey => $ids) {
+                $entity = SyncRegistry::get($parentKey);
+                $query = $entity->query()
+                    ->whereIn($entity->newModel()->getKeyName(), array_keys($ids))
+                    ->where('revision', '>', $cursor)
+                    ->whereNull('deleted_at');
+
+                if ($parentKey !== 'companies') {
+                    $query->where($entity->companyColumn(), $companyId);
+                }
+
+                $scope->apply($parentKey, $query);
+
+                foreach ($query->get() as $model) {
+                    $index[$parentKey][(string) $model->getKey()] = true;
+                    $changes[$parentKey][] = $this->serialize($entity, $model);
+                    $counts[$parentKey] = ($counts[$parentKey] ?? 0) + 1;
+                    $added++;
+                }
+            }
+
+            if ($added === 0) {
+                break;
+            }
+        }
+
+        return $changes;
     }
 
     /**

@@ -19,6 +19,14 @@ final class RegisterRequest extends FormRequest
         return true;
     }
 
+    /** L'unicité se vérifie sur l'adresse telle qu'elle sera enregistrée. */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('email'))) {
+            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
+        }
+    }
+
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
